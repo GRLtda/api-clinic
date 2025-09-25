@@ -1,9 +1,10 @@
+// api/clinics/clinics.routes.js
 const express = require('express');
 const router = express.Router();
 const controller = require('./clinics.controller');
-const { isAuthenticated } = require('../../middlewares/auth.middleware'); // Usaremos um middleware novo/dividido
+const { isAuthenticated, requireClinic } = require('../../middlewares/auth.middleware');
 
-// Rota para criar a clínica. O usuário precisa estar logado (isAuthenticated)
 router.post('/', isAuthenticated, controller.createClinic);
+router.put('/', isAuthenticated, requireClinic, controller.updateClinic);
 
 module.exports = router;

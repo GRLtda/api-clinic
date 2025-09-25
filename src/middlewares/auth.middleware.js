@@ -1,40 +1,45 @@
+// middlewares/auth.middleware.js
 const jwt = require('jsonwebtoken');
 const User = require('../api/users/users.model');
 const Clinic = require('../api/clinics/clinics.model');
 
-// Middleware 1: Apenas verifica se o token é válido e anexa o usuário à requisição
+// Middleware 1: autenticação
 exports.isAuthenticated = async (req, res, next) => {
   let token;
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    try {
-      token = req.headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id).select('-password');
-      if (!req.user) {
-        return res.status(401).json({ message: 'Usuário do token não encontrado.' });
-      }
-      next();
-    } catch (error) {
-      return res.status(401).json({ message: 'Não autorizado, token inválido.' });
-    }
+
+  const authHeader = req.headers.authorization || '';
+  const [scheme, value] = authHeader.split(' ');
+  if (scheme && /^Bearer$/i.test(scheme) && value) {
+    token = value;
   }
+
   if (!token) {
     return res.status(401).json({ message: 'Não autorizado, nenhum token fornecido.' });
   }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id).select('-password');
+    if (!user) {
+      return res.status(401).json({ message: 'Usuário do token não encontrado.' });
+    }
+    req.user = user;
+    return next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Não autorizado, token inválido.' });
+  }
 };
 
-// Middleware 2: Roda DEPOIS de 'isAuthenticated' e verifica se a clínica existe
+// Middleware 2: clínica obrigatória
 exports.requireClinic = async (req, res, next) => {
   try {
-    // req.user já foi preenchido pelo middleware anterior
-    const clinic = await Clinic.findOne({ owner: req.user._id });
+    const clinic = await Clinic.findOne({ owner: req.user._id }).select('_id').lean();
     if (!clinic) {
       return res.status(403).json({ message: 'Ação requerida, mas a clínica não foi configurada.' });
     }
-    // Anexa o ID da clínica para ser usado nos controladores (pacientes, agenda, etc)
     req.clinicId = clinic._id;
-    next();
+    return next();
   } catch (error) {
-    res.status(500).json({ message: 'Erro ao verificar a clínica do usuário.' });
+    return res.status(500).json({ message: 'Erro ao verificar a clínica do usuário.' });
   }
 };

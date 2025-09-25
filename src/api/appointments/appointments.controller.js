@@ -1,136 +1,202 @@
+// api/appointments/appointments.controller.js
 const Appointment = require('./appointments.model');
+const Patient = require('../patients/patients.model');
+const asyncHandler = require('../../utils/asyncHandler');
 
-/**
- * @desc    Criar (agendar) uma nova consulta
- * @route   POST /api/appointments
- * @access  Private
- */
-exports.createAppointment = async (req, res) => {
-  try {
-    // Pega os dados do corpo da requisição
-    const { patient, startTime, endTime, notes, status, returnInDays, sendReminder } = req.body;
-    
-    // Pega o ID da clínica do middleware (garantindo que o agendamento é para a clínica certa)
-    const clinicId = req.clinicId;
+// ----------------- helpers -----------------
+const parseDateSafe = (value) => {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
-    // Validação básica
-    if (!patient || !startTime || !endTime) {
-        return res.status(400).json({ message: 'Paciente, data de início e data de fim são obrigatórios.' });
-    }
+const ensurePatientInClinic = async (patientId, clinicId) => {
+  const exists = await Patient.exists({ _id: patientId, clinicId, deletedAt: { $exists: false } });
+  return !!exists;
+};
 
-    const newAppointment = await Appointment.create({
-      patient,
-      startTime,
-      endTime,
-      notes,
-      status,
-      returnInDays,
-      sendReminder,
-      clinic: clinicId, // Associa à clínica do usuário logado
-    });
+const hasOverlap = async ({ clinicId, patientId, startTime, endTime, ignoreId = null }) => {
+  const criteria = {
+    clinic: clinicId,
+    patient: patientId,
+    // overlap rule: (start < existing.end) AND (end > existing.start)
+    startTime: { $lt: endTime },
+    endTime: { $gt: startTime },
+  };
+  if (ignoreId) criteria._id = { $ne: ignoreId };
+  const count = await Appointment.countDocuments(criteria);
+  return count > 0;
+};
 
-    res.status(201).json(newAppointment);
+const pickUpdateFields = (body) => {
+  const {
+    patient,
+    startTime,
+    endTime,
+    notes,
+    status,
+    returnInDays,
+    sendReminder,
+    remindersSent,
+  } = body || {};
+  return { patient, startTime, endTime, notes, status, returnInDays, sendReminder, remindersSent };
+};
 
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao criar agendamento', error: error.message });
+// ---------------------------------------------------------
+// @desc    Criar (agendar) uma nova consulta
+// @route   POST /api/appointments
+// @access  Private
+// ---------------------------------------------------------
+exports.createAppointment = asyncHandler(async (req, res) => {
+  const { patient, startTime, endTime, notes, status, returnInDays, sendReminder } = req.body;
+  const clinicId = req.clinicId;
+
+  if (!patient || !startTime || !endTime) {
+    return res.status(400).json({ message: 'Paciente, data de início e data de fim são obrigatórios.' });
   }
-};
 
-/**
- * @desc    Listar todas as consultas (base do calendário)
- * @route   GET /api/appointments
- * @access  Private
- */
-exports.getAllAppointments = async (req, res) => {
-  try {
-    // Pega as datas de início e fim da query string para filtrar o período
-    const { startDate, endDate } = req.query;
-
-    if (!startDate || !endDate) {
-        return res.status(400).json({ message: 'Os parâmetros startDate e endDate são obrigatórios.' });
-    }
-
-    // Monta o filtro da busca no banco de dados
-    const filter = {
-      clinic: req.clinicId, // Apenas agendamentos da clínica do usuário
-      startTime: {
-        $gte: new Date(startDate), // $gte = Greater Than or Equal (Maior ou igual a)
-        $lte: new Date(endDate),   // $lte = Less Than or Equal (Menor ou igual a)
-      }
-    };
-
-    const appointments = await Appointment.find(filter)
-      // O .populate é muito poderoso! Ele substitui o ID do paciente pelos dados reais do paciente.
-      // Aqui, estamos pedindo para trazer apenas o nome e o telefone do paciente.
-      .populate('patient', 'name phone')
-      .sort({ startTime: 'asc' }); // Ordena os resultados por data de início
-
-    res.status(200).json(appointments);
-
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao buscar agendamentos', error: error.message });
+  const start = parseDateSafe(startTime);
+  const end = parseDateSafe(endTime);
+  if (!start || !end) {
+    return res.status(400).json({ message: 'Datas inválidas. Use um formato ISO válido.' });
   }
-};
-
-
-/**
- * @desc    Atualizar um agendamento existente
- * @route   PUT /api/appointments/:id
- * @access  Private
- */
-exports.updateAppointment = async (req, res) => {
-  try {
-    const { id } = req.params; // Pega o ID do agendamento da URL
-    const clinicId = req.clinicId; // Pega o ID da clínica do middleware
-
-    // Tenta encontrar e atualizar o agendamento
-    // A condição de busca { _id: id, clinic: clinicId } garante que um médico
-    // só possa alterar agendamentos da sua própria clínica.
-    const updatedAppointment = await Appointment.findOneAndUpdate(
-      { _id: id, clinic: clinicId },
-      req.body, // Os novos dados vêm do corpo da requisição
-      {
-        new: true, // Retorna o documento já com as alterações
-        runValidators: true, // Roda as validações do nosso Schema
-      }
-    );
-
-    // Se não encontrou o agendamento para atualizar, retorna um erro
-    if (!updatedAppointment) {
-      return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
-    }
-
-    res.status(200).json(updatedAppointment);
-
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao atualizar agendamento', error: error.message });
+  if (end <= start) {
+    return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
   }
-};
 
+  // paciente precisa pertencer à clínica
+  const ok = await ensurePatientInClinic(patient, clinicId);
+  if (!ok) {
+    return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
+  }
 
-/**
- * @desc    Deletar (cancelar) um agendamento
- * @route   DELETE /api/appointments/:id
- * @access  Private
- */
-exports.deleteAppointment = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const clinicId = req.clinicId;
+  // conflito de horário (mesmo paciente, mesma clínica)
+  const overlap = await hasOverlap({ clinicId, patientId: patient, startTime: start, endTime: end });
+  if (overlap) {
+    return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
+  }
 
-        // Tenta encontrar e deletar o agendamento
-        // A condição de busca { _id: id, clinic: clinicId } é a nossa camada de segurança
-        const deletedAppointment = await Appointment.findOneAndDelete({ _id: id, clinic: clinicId });
+  const newAppointment = await Appointment.create({
+    patient,
+    startTime: start,
+    endTime: end,
+    notes,
+    status,
+    returnInDays,
+    sendReminder,
+    clinic: clinicId,
+  });
 
-        if (!deletedAppointment) {
-            return res.status(404).json({ message: 'Agendamento não encontrado para exclusão.' });
-        }
-        
-        // Se a exclusão deu certo, retorna uma resposta 204 No Content,
-        // que é o padrão para operações de delete bem-sucedidas.
-        res.status(204).send();
+  return res.status(201).json(newAppointment);
+});
 
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao deletar agendamento', error: error.message });
+// ---------------------------------------------------------
+// @desc    Listar todas as consultas (base do calendário)
+// @route   GET /api/appointments
+// @access  Private
+// ---------------------------------------------------------
+exports.getAllAppointments = asyncHandler(async (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ message: 'Os parâmetros startDate e endDate são obrigatórios.' });
+  }
+
+  const start = parseDateSafe(startDate);
+  const end = parseDateSafe(endDate);
+  if (!start || !end) {
+    return res.status(400).json({ message: 'Parâmetros de data inválidos. Use um formato ISO válido.' });
+  }
+
+  const filter = {
+    clinic: req.clinicId,
+    startTime: { $gte: start, $lte: end },
+  };
+
+  const appointments = await Appointment.find(filter)
+    .populate('patient', 'name phone')
+    .sort({ startTime: 1 })
+    .lean();
+
+  return res.status(200).json(appointments);
+});
+
+// ---------------------------------------------------------
+// @desc    Atualizar um agendamento existente
+// @route   PUT /api/appointments/:id
+// @access  Private
+// ---------------------------------------------------------
+exports.updateAppointment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const clinicId = req.clinicId;
+
+  const payload = pickUpdateFields(req.body);
+
+  // validações coerentes com criação (quando os campos vierem)
+  let start, end;
+  if (payload.startTime) {
+    start = parseDateSafe(payload.startTime);
+    if (!start) return res.status(400).json({ message: 'startTime inválido.' });
+    payload.startTime = start;
+  }
+  if (payload.endTime) {
+    end = parseDateSafe(payload.endTime);
+    if (!end) return res.status(400).json({ message: 'endTime inválido.' });
+    payload.endTime = end;
+  }
+  if (start && end && end <= start) {
+    return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
+  }
+
+  // se trocar paciente, garanta vínculo com a clínica
+  if (payload.patient) {
+    const ok = await ensurePatientInClinic(payload.patient, clinicId);
+    if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
+  }
+
+  // checa conflito somente se algum entre start/end/patient mudar
+  const needsOverlapCheck = (payload.patient || payload.startTime || payload.endTime);
+  if (needsOverlapCheck) {
+    // precisamos dos valores “atuais” para compor a verificação completa
+    const current = await Appointment.findOne({ _id: id, clinic: clinicId }).select('patient startTime endTime').lean();
+    if (!current) return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
+
+    const patientId = payload.patient || current.patient;
+    const s = payload.startTime || current.startTime;
+    const e = payload.endTime || current.endTime;
+
+    const overlap = await hasOverlap({ clinicId, patientId, startTime: s, endTime: e, ignoreId: id });
+    if (overlap) {
+      return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
     }
-};
+  }
+
+  const updatedAppointment = await Appointment.findOneAndUpdate(
+    { _id: id, clinic: clinicId },
+    payload,
+    { new: true, runValidators: true, omitUndefined: true }
+  );
+
+  if (!updatedAppointment) {
+    return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
+  }
+
+  return res.status(200).json(updatedAppointment);
+});
+
+// ---------------------------------------------------------
+// @desc    Deletar (cancelar) um agendamento
+// @route   DELETE /api/appointments/:id
+// @access  Private
+// ---------------------------------------------------------
+exports.deleteAppointment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const clinicId = req.clinicId;
+
+  const deletedAppointment = await Appointment.findOneAndDelete({ _id: id, clinic: clinicId });
+
+  if (!deletedAppointment) {
+    return res.status(404).json({ message: 'Agendamento não encontrado para exclusão.' });
+  }
+
+  return res.status(204).send();
+});

@@ -1,65 +1,48 @@
+// api/appointments/appointments.model.js
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 const appointmentSchema = new Schema(
   {
-    // Vínculo com o paciente que está sendo agendado
-    patient: {
-      type: Schema.Types.ObjectId,
-      ref: 'Patient', // Referencia o modelo 'Patient'
-      required: true,
-    },
-    // Vínculo com a clínica onde ocorre o agendamento
-    clinic: {
-      type: Schema.Types.ObjectId,
-      ref: 'Clinic', // Referencia o modelo 'Clinic'
-      required: true,
-    },
-    // Data e hora do início da consulta
-    startTime: {
-      type: Date,
-      required: true,
-    },
-    // Data e hora do fim da consulta (útil para calcular duração e evitar sobreposições)
-    endTime: {
-      type: Date,
-      required: true,
-    },
-    // Observações adicionadas pelo médico ou secretária
-    notes: {
-      type: String,
-      trim: true,
-    },
-    // Status da consulta para controle de fluxo
+    patient: { type: Schema.Types.ObjectId, ref: 'Patient', required: true, index: true },
+    clinic:  { type: Schema.Types.ObjectId, ref: 'Clinic', required: true, index: true },
+    startTime: { type: Date, required: true },
+    endTime:   { type: Date, required: true },
+    notes: { type: String, trim: true },
     status: {
       type: String,
       enum: ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Não Compareceu'],
       default: 'Agendado',
     },
-    // Campo para o agendamento de retorno
-    returnInDays: {
-      type: Number, // Armazena o número de dias para o retorno
-      default: 0,
-    },
-    // Flag para ativar o envio de lembretes via WhatsApp
-    sendReminder: {
-      type: Boolean,
-      default: false,
-    },
-    // Controle interno para saber quais lembretes já foram enviados
+    returnInDays: { type: Number, default: 0 },
+    sendReminder: { type: Boolean, default: false },
     remindersSent: {
       oneDayBefore: { type: Boolean, default: false },
       threeHoursBefore: { type: Boolean, default: false },
     },
   },
-  {
-    timestamps: true, // Adiciona createdAt e updatedAt
-  }
+  { timestamps: true }
 );
 
-// Cria um índice para otimizar buscas por data e clínica
+// validação simples: endTime > startTime
+appointmentSchema.pre('validate', function (next) {
+  if (this.startTime && this.endTime && this.endTime <= this.startTime) {
+    return next(new Error('endTime deve ser maior que startTime.'));
+  }
+  next();
+});
+
+// índices úteis para consultas
 appointmentSchema.index({ clinic: 1, startTime: 1 });
+appointmentSchema.index({ clinic: 1, patient: 1, startTime: 1 });
+
+// saída JSON limpa
+appointmentSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.__v;
+    return ret;
+  },
+});
 
 const Appointment = mongoose.model('Appointment', appointmentSchema);
-
 module.exports = Appointment;

@@ -1,9 +1,9 @@
+// utils/generateToken.js
 const jwt = require('jsonwebtoken');
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d', // O token expira em 30 dias
+module.exports = function generateToken(userId) {
+  return jwt.sign({ id: String(userId) }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    // algoritmo padrão HS256
   });
 };
-
-module.exports = generateToken;

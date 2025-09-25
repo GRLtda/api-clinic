@@ -1,40 +1,64 @@
+// api/clinics/clinics.model.js
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
-const workingHoursSchema = new Schema({
-    day: { type: String, enum: ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']},
-    startTime: String,
-    endTime: String,
-    isOpen: { type: Boolean, default: true }
-}, { _id: false });
+const dayEnum = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
-const clinicSchema = new Schema({
-  name: { type: String, required: true },
-  cnpj: { type: String, unique: true, sparse: true },
-  logoUrl: { type: String },
-  marketingName: { type: String },
-  responsibleName: { type: String, required: true },
-  owner: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-    unique: true, // Garante que um usuário só pode ser dono de UMA clínica
+const workingHoursSchema = new Schema(
+  {
+    day: { type: String, enum: dayEnum, required: true },
+    // HH:mm simples; mantém string como no seu design
+    startTime: { type: String, trim: true, match: [/^\d{2}:\d{2}$/, 'Formato HH:mm inválido'], required: true },
+    endTime:   { type: String, trim: true, match: [/^\d{2}:\d{2}$/, 'Formato HH:mm inválido'], required: true },
+    isOpen: { type: Boolean, default: true },
   },
-  address: {
-    cep: String,
-    street: String,
-    number: String,
-    district: String,
-    city: String,
-    state: String,
+  { _id: false }
+);
+
+const addressSchema = new Schema(
+  {
+    cep: { type: String, trim: true },
+    street: { type: String, trim: true },
+    number: { type: String, trim: true },
+    district: { type: String, trim: true },
+    city: { type: String, trim: true },
+    state: { type: String, trim: true },
   },
-  workingHours: [workingHoursSchema],
-  plan: {
-    type: String,
-    enum: ['basic', 'premium', 'enterprise'],
-    default: 'basic',
-  }
-}, { timestamps: true });
+  { _id: false }
+);
+
+const clinicSchema = new Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    cnpj: { type: String, unique: true, sparse: true, trim: true },
+    logoUrl: { type: String, trim: true },
+    marketingName: { type: String, trim: true },
+    responsibleName: { type: String, required: true, trim: true },
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      unique: true, // um usuário só pode ser dono de UMA clínica
+      index: true,
+    },
+    address: addressSchema,
+    workingHours: { type: [workingHoursSchema], default: void 0 },
+    plan: {
+      type: String,
+      enum: ['basic', 'premium', 'enterprise'],
+      default: 'basic',
+    },
+  },
+  { timestamps: true }
+);
+
+// saída JSON limpa
+clinicSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.__v;
+    return ret;
+  },
+});
 
 const Clinic = mongoose.model('Clinic', clinicSchema);
 module.exports = Clinic;

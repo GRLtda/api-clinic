@@ -1,22 +1,21 @@
+// middlewares/upload.middleware.js
 const multer = require('multer');
 
-// Vamos configurar o multer para armazenar o arquivo em memória.
-// Assim, não precisamos salvá-lo no disco do servidor antes de enviar para o S3.
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  // Aceita apenas arquivos de imagem
-  if (file.mimetype.startsWith('image/')) {
+  // Somente imagens (ou PDF, se liberar depois)
+  if (/^image\/(png|jpe?g|webp)$/i.test(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Formato de arquivo não suportado! Apenas imagens são permitidas.'), false);
+    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'Formato de arquivo não suportado. Apenas imagens PNG/JPG/WEBP são permitidas.'));
   }
 };
 
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: { fileSize: 1024 * 1024 * 5 }, // Limite de 5MB por arquivo
+  storage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB (ajuste se quiser 5MB)
 });
 
 module.exports = upload;
