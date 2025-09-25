@@ -59,3 +59,29 @@ exports.loginUser = async (req, res) => {
     res.status(500).json({ message: 'Erro no servidor ao fazer login.', error: error.message });
   }
 };
+
+exports.getMe = async (req, res) => {
+  try {
+    // A propriedade req.user é adicionada pelo middleware isAuthenticated
+    // O req.clinicId é adicionado pelo middleware requireClinic
+    const user = req.user;
+
+    // Buscamos a clínica pelo ID do usuário (o dono)
+    const clinic = await Clinic.findOne({ owner: user._id });
+
+    // Se o middleware já passou, a clínica deve existir, mas é bom verificar
+    if (!clinic) {
+      return res.status(404).json({ message: 'Clínica não encontrada para este usuário.' });
+    }
+
+    res.status(200).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      clinic: clinic,
+      role: 'owner', // Baseado no modelo de dados, o usuário é o dono da clínica
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao buscar dados do usuário.', error: error.message });
+  }
+};
