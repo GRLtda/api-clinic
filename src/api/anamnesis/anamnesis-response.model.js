@@ -1,79 +1,86 @@
+// api/anamnesis/anamnesis-response.model.js
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
-const { randomBytes } = require('crypto'); // Para gerar o token do link
+const { randomBytes } = require('crypto');
 
-// Sub-schema para armazenar uma única resposta
-const answerSchema = new Schema({
-  questionTitle: {
-    type: String,
-    required: true,
+const answerSchema = new Schema(
+  {
+    questionTitle: { type: String, required: true, trim: true },
+    // Poderíamos armazenar também questionId se desejar evoluir
+    answer: { type: Schema.Types.Mixed, required: true },
   },
-  // A resposta pode ser um texto, um array de opções, ou um booleano (sim/não)
-  // Usamos Mixed para dar essa flexibilidade.
-  answer: {
-    type: Schema.Types.Mixed,
-    required: true,
-  },
-}, { _id: false });
+  { _id: false }
+);
 
 const anamnesisResponseSchema = new Schema(
   {
-    patient: {
-      type: Schema.Types.ObjectId,
-      ref: 'Patient',
-      required: true,
-    },
-    clinic: {
-      type: Schema.Types.ObjectId,
-      ref: 'Clinic',
-      required: true,
-    },
-    // Referência ao modelo de formulário que foi usado
-    template: {
-      type: Schema.Types.ObjectId,
-      ref: 'AnamnesisTemplate',
-      required: true,
-    },
-    // Array com as respostas
+    patient: { type: Schema.Types.ObjectId, ref: 'Patient', required: true, index: true },
+    clinic:  { type: Schema.Types.ObjectId, ref: 'Clinic', required: true, index: true },
+    template:{ type: Schema.Types.ObjectId, ref: 'AnamnesisTemplate', required: true, index: true },
     answers: [answerSchema],
-    // Status para controlar o preenchimento
     status: {
       type: String,
       enum: ['Pendente', 'Preenchido'],
       default: 'Pendente',
+      index: true,
     },
-    // Quem preencheu as respostas
     answeredBy: {
       type: String,
       enum: ['Médico', 'Paciente'],
     },
-    // Token de acesso único para o paciente preencher remotamente
     patientAccessToken: {
       type: String,
       unique: true,
-      sparse: true, // Permite valores nulos, mas os que existem devem ser únicos
+      sparse: true,
+      index: true,
     },
-    patientAccessTokenExpires: {
-      type: Date,
-    },
+    patientAccessTokenExpires: { type: Date },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-// Antes de salvar, se for para o paciente responder, gera um token
-anamnesisResponseSchema.pre('save', function (next) {
-  if (this.isModified('answeredBy') && this.answeredBy === 'Paciente' && !this.patientAccessToken) {
-    // Gera um token aleatório e seguro
-    const token = randomBytes(32).toString('hex');
-    this.patientAccessToken = token;
-    // Define a expiração do token para 7 dias a partir de agora
-    this.patientAccessTokenExpires = Date.now() + 7 * 24 * 60 * 60 * 1000;
+// ---------- Métodos de domínio ----------
+anamnesisResponseSchema.methods.generatePatientToken = function (ttlMs = 7 * 24 * 60 * 60 * 1000) {
+  const token = randomBytes(32).toString('hex');
+  this.patientAccessToken = token;
+  this.patientAccessTokenExpires = new Date(Date.now() + ttlMs);
+  return token;
+};
+
+anamnesisResponseSchema.methods.invalidateToken = function () {
+  this.patientAccessToken = undefined;
+  this.patientAccessTokenExpires = undefined;
+};
+
+anamnesisResponseSchema.methods.markFilled = function (by /* 'Médico' | 'Paciente' */) {
+  if (this.status === 'Preenchido') {
+    // idempotente
+    return;
+  }
+  this.status = 'Preenchido';
+  this.answeredBy = by;
+  this.invalidateToken();
+};
+
+// ---------- Validações ----------
+anamnesisResponseSchema.pre('validate', function (next) {
+  if (this.status === 'Preenchido' && (!this.answers || this.answers.length === 0)) {
+    return next(new Error('Não é possível marcar como Preenchido sem respostas.'));
   }
   next();
 });
 
-const AnamnesisResponse = mongoose.model('AnamnesisResponse', anamnesisResponseSchema);
+// ---------- Índices compostos úteis ----------
+anamnesisResponseSchema.index({ clinic: 1, patient: 1, createdAt: -1 });
+anamnesisResponseSchema.index({ clinic: 1, template: 1, status: 1 });
 
+// ---------- Saída JSON limpa ----------
+anamnesisResponseSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.__v;
+    return ret;
+  },
+});
+
+const AnamnesisResponse = mongoose.model('AnamnesisResponse', anamnesisResponseSchema);
 module.exports = AnamnesisResponse;

@@ -1,69 +1,167 @@
+// api/anamnesis/anamnesis-response.controller.js
+const asyncHandler = require('../../utils/asyncHandler');
 const AnamnesisResponse = require('./anamnesis-response.model');
+const AnamnesisTemplate = require('./anamnesis-template.model');
 const Patient = require('../patients/patients.model');
 
-// ... (as funções createAnamnesisForPatient e getAnamnesisForPatient continuam aqui)
-exports.createAnamnesisForPatient = async (req, res) => { /* ... código existente ... */ };
-exports.getAnamnesisForPatient = async (req, res) => { /* ... código existente ... */ };
+// Helpers
+const ensurePatientInClinic = async (patientId, clinicId) => {
+  const exists = await Patient.exists({ _id: patientId, clinicId, deletedAt: { $exists: false } });
+  return !!exists;
+};
 
+// -----------------------------------------------------------------------------------
+// @desc    Atribuir uma anamnese a um paciente (gera token se for paciente preencher)
+// @route   POST /patients/:patientId/anamnesis
+// @access  Private (isAuthenticated + requireClinic)
+// Body: { templateId: string, mode?: 'Paciente' | 'Médico', tokenTtlDays?: number }
+// -----------------------------------------------------------------------------------
+exports.createAnamnesisForPatient = asyncHandler(async (req, res) => {
+  const { patientId } = req.params;
+  const { templateId, mode = 'Paciente', tokenTtlDays = 7 } = req.body || {};
+  const clinicId = req.clinicId;
 
+  if (!templateId) {
+    return res.status(400).json({ message: 'templateId é obrigatório.' });
+  }
+
+  // Checagens de vínculo
+  const [patientOk, template] = await Promise.all([
+    ensurePatientInClinic(patientId, clinicId),
+    AnamnesisTemplate.findOne({ _id: templateId, clinic: clinicId }).lean(),
+  ]);
+
+  if (!patientOk) {
+    return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
+  }
+  if (!template) {
+    return res.status(404).json({ message: 'Modelo de anamnese não encontrado nesta clínica.' });
+  }
+
+  const doc = new AnamnesisResponse({
+    patient: patientId,
+    clinic: clinicId,
+    template: templateId,
+    status: 'Pendente',
+    answeredBy: mode, // define quem preencherá
+  });
+
+  // Se o paciente preencherá, geramos token
+  if (mode === 'Paciente') {
+    const ttlMs = Math.max(parseInt(tokenTtlDays, 10) || 7, 1) * 24 * 60 * 60 * 1000;
+    doc.generatePatientToken(ttlMs);
+  }
+
+  const saved = await doc.save();
+  // Retorna o doc; se houver token, ele vem junto
+  return res.status(201).json(saved);
+});
+
+// -----------------------------------------------------------------------------------
+// @desc    Listar anamneses do paciente
+// @route   GET /patients/:patientId/anamnesis?status=&page=&limit=
+// @access  Private
+// -----------------------------------------------------------------------------------
+exports.getAnamnesisForPatient = asyncHandler(async (req, res) => {
+  const { patientId } = req.params;
+  const clinicId = req.clinicId;
+  const { status } = req.query;
+
+  const ok = await ensurePatientInClinic(patientId, clinicId);
+  if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
+
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const skip = (page - 1) * limit;
+
+  const filter = { clinic: clinicId, patient: patientId };
+  if (status) filter.status = status;
+
+  const [total, items] = await Promise.all([
+    AnamnesisResponse.countDocuments(filter),
+    AnamnesisResponse.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
+
+  return res.status(200).json({
+    total,
+    page,
+    pages: Math.ceil(total / limit) || 1,
+    limit,
+    data: items,
+  });
+});
+
+// -----------------------------------------------------------------------------------
 // @desc    Médico submete as respostas de uma anamnese
-exports.submitAnamnesisByDoctor = async (req, res) => {
-  try {
-    const { responseId, patientId } = req.params;
-    const { answers } = req.body;
+// @route   PUT /patients/:patientId/anamnesis/:responseId
+// @access  Private
+// Body: { answers: Answer[] }
+// -----------------------------------------------------------------------------------
+exports.submitAnamnesisByDoctor = asyncHandler(async (req, res) => {
+  const { responseId, patientId } = req.params;
+  const { answers } = req.body || {};
+  const clinicId = req.clinicId;
 
-    const updatedResponse = await AnamnesisResponse.findOneAndUpdate(
-      // Condição de segurança: garante que a resposta pertence à clínica e ao paciente corretos
-      { _id: responseId, patient: patientId, clinic: req.clinicId },
-      {
-        answers: answers,
-        status: 'Preenchido',
-      },
-      { new: true }
-    );
-
-    if (!updatedResponse) {
-      return res.status(404).json({ message: 'Registro de Anamnese não encontrado.' });
-    }
-
-    res.status(200).json(updatedResponse);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao salvar respostas da anamnese.', error: error.message });
+  if (!Array.isArray(answers) || answers.length === 0) {
+    return res.status(400).json({ message: 'Respostas inválidas.' });
   }
-};
 
+  const resp = await AnamnesisResponse.findOne({
+    _id: responseId,
+    patient: patientId,
+    clinic: clinicId,
+  });
 
-// @desc    Paciente submete as respostas de uma anamnese via link
-exports.submitAnamnesisByPatient = async (req, res) => {
-  try {
-    const { token } = req.params;
-    const { answers } = req.body;
-
-    // 1. Encontra a anamnese pelo token único
-    const response = await AnamnesisResponse.findOne({ patientAccessToken: token });
-
-    // 2. Validações de segurança
-    if (!response) {
-      return res.status(404).json({ message: 'Formulário não encontrado ou inválido.' });
-    }
-    if (response.status === 'Preenchido') {
-      return res.status(409).json({ message: 'Este formulário já foi respondido.' }); // 409 Conflict
-    }
-    if (response.patientAccessTokenExpires < new Date()) {
-      return res.status(403).json({ message: 'O link para este formulário expirou.' }); // 403 Forbidden
-    }
-
-    // 3. Atualiza o documento
-    response.answers = answers;
-    response.status = 'Preenchido';
-    // Invalida o token para que não possa ser usado novamente
-    response.patientAccessToken = undefined;
-    response.patientAccessTokenExpires = undefined;
-
-    await response.save();
-
-    res.status(200).json({ message: 'Obrigado por responder!' });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao salvar respostas da anamnese.', error: error.message });
+  if (!resp) {
+    return res.status(404).json({ message: 'Registro de Anamnese não encontrado.' });
   }
-};
+  if (resp.status === 'Preenchido') {
+    return res.status(409).json({ message: 'Este formulário já foi respondido.' });
+  }
+
+  resp.answers = answers;
+  resp.markFilled('Médico');
+  await resp.save();
+
+  return res.status(200).json(resp);
+});
+
+// -----------------------------------------------------------------------------------
+// @desc    Paciente submete as respostas de uma anamnese via link público
+// @route   PUT /anamnesis/public/:token
+// @access  Public
+// Body: { answers: Answer[] }
+// -----------------------------------------------------------------------------------
+exports.submitAnamnesisByPatient = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+  const { answers } = req.body || {};
+
+  if (!token) {
+    return res.status(400).json({ message: 'Token inválido.' });
+  }
+  if (!Array.isArray(answers) || answers.length === 0) {
+    return res.status(400).json({ message: 'Respostas inválidas.' });
+  }
+
+  const response = await AnamnesisResponse.findOne({ patientAccessToken: token });
+
+  if (!response) {
+    return res.status(404).json({ message: 'Formulário não encontrado ou inválido.' });
+  }
+  if (response.status === 'Preenchido') {
+    return res.status(409).json({ message: 'Este formulário já foi respondido.' });
+  }
+  if (!response.patientAccessTokenExpires || response.patientAccessTokenExpires < new Date()) {
+    return res.status(403).json({ message: 'O link para este formulário expirou.' });
+  }
+
+  response.answers = answers;
+  response.markFilled('Paciente');
+  await response.save();
+
+  return res.status(200).json({ message: 'Obrigado por responder!' });
+});
