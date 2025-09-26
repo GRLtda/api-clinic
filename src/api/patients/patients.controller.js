@@ -15,7 +15,6 @@ const notDeleted = { deletedAt: { $exists: false } };
 
 const duplicateKeyMessage = (err) => {
   if (err?.code === 11000 && err?.keyPattern) {
-    if (err.keyPattern.phone) return 'Telefone já cadastrado nesta clínica.';
     if (err.keyPattern.cpf) return 'CPF já cadastrado nesta clínica.';
     return 'Registro duplicado para campo único.';
   }

@@ -32,8 +32,7 @@ const patientSchema = new Schema(
     cpf: { type: String, trim: true },
     address: addressSchema,
     clinicId: { type: Schema.Types.ObjectId, ref: 'Clinic', required: true, index: true },
-    // Soft delete
-    deletedAt: { type: Date, default: undefined },
+    deletedAt: { type: Date, default: undefined }, // Soft delete
   },
   { timestamps: true }
 );
@@ -56,11 +55,7 @@ patientSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-// ---------- Índices de unicidade por clínica (ignorando soft-deletados) ----------
-patientSchema.index(
-  { phone: 1, clinicId: 1 },
-  { unique: true, partialFilterExpression: { deletedAt: { $exists: false } } }
-);
+// ---------- Índice de unicidade (apenas CPF por clínica, ignorando soft-deletados) ----------
 patientSchema.index(
   { cpf: 1, clinicId: 1 },
   { unique: true, sparse: true, partialFilterExpression: { deletedAt: { $exists: false } } }
