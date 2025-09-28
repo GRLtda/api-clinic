@@ -83,6 +83,7 @@ exports.getAnamnesisForPatient = asyncHandler(async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
+      .populate('template', 'name') // Popula apenas o nome
       .lean(),
   ]);
 
@@ -164,4 +165,35 @@ exports.submitAnamnesisByPatient = asyncHandler(async (req, res) => {
   await response.save();
 
   return res.status(200).json({ message: 'Obrigado por responder!' });
+});
+
+// -----------------------------------------------------------------------------------
+// @desc    Paciente visualiza o formulário de anamnese via link público
+// @route   GET /anamnesis/public/:token
+// @access  Public
+// -----------------------------------------------------------------------------------
+exports.getAnamnesisForPatientByToken = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+
+  if (!token) {
+    return res.status(400).json({ message: 'Token inválido.' });
+  }
+
+  // Encontra a resposta da anamnese pelo token e popula o modelo
+  const response = await AnamnesisResponse.findOne({ patientAccessToken: token })
+    .populate('template', 'name questions') // Puxa o nome e as perguntas do modelo
+    .lean(); // Retorna um objeto JavaScript simples
+
+  // Validações de segurança
+  if (!response) {
+    return res.status(404).json({ message: 'Formulário não encontrado ou inválido.' });
+  }
+  if (response.status === 'Preenchido') {
+    return res.status(409).json({ message: 'Este formulário já foi respondido.' });
+  }
+  if (!response.patientAccessTokenExpires || response.patientAccessTokenExpires < new Date()) {
+    return res.status(403).json({ message: 'O link para este formulário expirou.' });
+  }
+
+  return res.status(200).json(response);
 });

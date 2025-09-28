@@ -21,7 +21,7 @@ router.put('/patients/:patientId/anamnesis/:responseId', isAuthenticated, requir
 router.put('/anamnesis/public/:token', controller.submitAnamnesisByPatient);
 
 // Rota para o paciente visualizar o formulário (opcional, mas bom ter)
-// router.get('/anamnesis/public/:token', controller.getAnamnesisForPatientByToken);
+router.get('/anamnesis/public/:token', controller.getAnamnesisForPatientByToken);
 
 
 module.exports = router;

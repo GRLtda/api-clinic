@@ -18,6 +18,10 @@
   },
   "scripts": {
     "dev": "node src/server.js",
-    "test": "node tests/api-test.js"
+    "test": "node tests/api-test.js",
+    "anamnese-criar": "node scripts/create-anamnesis.js"
+  },
+  "devDependencies": {
+    "readline-sync": "^1.4.10"
   }
 }
