@@ -89,23 +89,31 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   return res.status(201).json(newAppointment);
 });
 
+
 // ---------------------------------------------------------
 // @desc    Listar todas as consultas (base do calendário)
 // @route   GET /api/appointments
 // @access  Private
 // ---------------------------------------------------------
+function parseDateUTC(value) {
+  const [y,m,d] = value.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(Date.UTC(y, m-1, d)); // 00:00 UTC
+}
+
 exports.getAllAppointments = asyncHandler(async (req, res) => {
   const { startDate, endDate } = req.query;
-
   if (!startDate || !endDate) {
-    return res.status(400).json({ message: 'Os parâmetros startDate e endDate são obrigatórios.' });
+    return res.status(400).json({ message: 'startDate e endDate são obrigatórios.' });
   }
 
-  const start = parseDateSafe(startDate);
-  const end = parseDateSafe(endDate);
+  const start = parseDateUTC(startDate);
+  const end = parseDateUTC(endDate);
   if (!start || !end) {
-    return res.status(400).json({ message: 'Parâmetros de data inválidos. Use um formato ISO válido.' });
+    return res.status(400).json({ message: 'Datas inválidas.' });
   }
+  // fim do dia em UTC
+  end.setUTCHours(23,59,59,999);
 
   const filter = {
     clinic: req.clinicId,
@@ -119,6 +127,8 @@ exports.getAllAppointments = asyncHandler(async (req, res) => {
 
   return res.status(200).json(appointments);
 });
+
+
 
 // ---------------------------------------------------------
 // @desc    Atualizar um agendamento existente
