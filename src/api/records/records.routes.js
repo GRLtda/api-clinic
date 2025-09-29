@@ -13,6 +13,9 @@ router.post('/', controller.createRecordEntry);
 // Listar prontuários de um paciente
 router.get('/patient/:patientId', controller.getRecordEntriesForPatient);
 
+router.get('/appointment/:appointmentId', controller.getRecordByAppointmentId);
+
+
 // --- Gerenciamento de anexos ---
 
 // Adicionar anexos já existentes

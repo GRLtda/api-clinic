@@ -22,6 +22,7 @@
     "anamnese-criar": "node scripts/create-anamnesis.js"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.0.0",
     "readline-sync": "^1.4.10"
   }
 }

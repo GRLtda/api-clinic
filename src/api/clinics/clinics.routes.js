@@ -7,4 +7,7 @@ const { isAuthenticated, requireClinic } = require('../../middlewares/auth.middl
 router.post('/', isAuthenticated, controller.createClinic);
 router.put('/', isAuthenticated, requireClinic, controller.updateClinic);
 
+router.get('/summary', isAuthenticated, requireClinic, controller.getClinicSummary);
+
+
 module.exports = router;

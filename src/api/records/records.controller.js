@@ -35,6 +35,29 @@ exports.createRecordEntry = asyncHandler(async (req, res) => {
   return res.status(201).json(record);
 });
 
+exports.getRecordByAppointmentId = asyncHandler(async (req, res) => {
+  const { appointmentId } = req.params;
+  const clinicId = req.clinicId;
+
+  // Busca o prontuário que corresponde ao agendamento e à clínica
+  const record = await MedicalRecordEntry.findOne({
+    appointment: appointmentId,
+    clinic: clinicId,
+  })
+    .populate('attachments', 'url fileType uploadedBy createdAt') // Popula anexos, se houver
+    .lean();
+
+  // Se não encontrar, retorna 404
+  if (!record) {
+    return res.status(404).json({ message: 'Nenhum registro de prontuário encontrado para este agendamento.' });
+  }
+
+  // Se encontrar, retorna o registro
+  return res.status(200).json(record);
+});
+
+
+
 exports.getRecordEntriesForPatient = asyncHandler(async (req, res) => {
   const { patientId } = req.params;
   const clinicId = req.clinicId;

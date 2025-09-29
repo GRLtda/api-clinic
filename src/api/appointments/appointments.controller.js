@@ -102,18 +102,26 @@ function parseDateUTC(value) {
 }
 
 exports.getAllAppointments = asyncHandler(async (req, res) => {
-  const { startDate, endDate } = req.query;
-  if (!startDate || !endDate) {
-    return res.status(400).json({ message: 'startDate e endDate são obrigatórios.' });
-  }
+  let { startDate, endDate } = req.query;
 
-  const start = parseDateUTC(startDate);
-  const end = parseDateUTC(endDate);
-  if (!start || !end) {
-    return res.status(400).json({ message: 'Datas inválidas.' });
+  let start, end;
+
+  if (!startDate || !endDate) {
+    const now = new Date();
+    // pega data de hoje em UTC
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const d = now.getUTCDate();
+    start = new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
+    end   = new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
+  } else {
+    start = parseDateUTC(startDate);
+    end   = parseDateUTC(endDate);
+    if (!start || !end) {
+      return res.status(400).json({ message: 'Datas inválidas.' });
+    }
+    end.setUTCHours(23,59,59,999);
   }
-  // fim do dia em UTC
-  end.setUTCHours(23,59,59,999);
 
   const filter = {
     clinic: req.clinicId,
@@ -127,6 +135,7 @@ exports.getAllAppointments = asyncHandler(async (req, res) => {
 
   return res.status(200).json(appointments);
 });
+
 
 
 

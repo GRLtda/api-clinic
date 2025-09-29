@@ -1,5 +1,6 @@
-// api/clinics/clinics.controller.js
 const Clinic = require('./clinics.model');
+const Patient = require('../patients/patients.model');
+const Appointment = require('../appointments/appointments.model');
 const asyncHandler = require('../../utils/asyncHandler');
 
 // helpers: whitelists de campos permitidos
@@ -81,4 +82,45 @@ exports.updateClinic = asyncHandler(async (req, res) => {
   }
 
   return res.status(200).json(updatedClinic);
+});
+
+exports.getClinicSummary = asyncHandler(async (req, res) => {
+    const clinicId = req.clinicId;
+
+    // Datas para filtrar "hoje"
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // 1. Contagem total de pacientes (como antes)
+    const totalPatientsPromise = Patient.countDocuments({ clinicId: clinicId });
+
+    // 2. Busca dos agendamentos de hoje (a nova parte)
+    const todaysAppointmentsPromise = Appointment.find({
+        clinic: clinicId,
+        startTime: {
+            $gte: startOfDay,
+            $lte: endOfDay,
+        },
+    })
+    .populate('patient', 'name phone') // Inclui nome e telefone do paciente
+    .sort({ startTime: 1 }) // Ordena por hora de início
+    .lean();
+
+    // Executa as duas buscas no banco de dados em paralelo para mais eficiência
+    const [totalPatients, todaysAppointments] = await Promise.all([
+        totalPatientsPromise,
+        todaysAppointmentsPromise,
+    ]);
+
+    // O número de agendamentos é simplesmente o tamanho do array
+    const appointmentsTodayCount = todaysAppointments.length;
+
+    res.status(200).json({
+        totalPatients,
+        appointmentsToday: appointmentsTodayCount,
+        todaysAppointments: todaysAppointments, // A lista completa dos agendamentos
+    });
 });
