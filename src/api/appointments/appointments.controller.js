@@ -219,3 +219,30 @@ exports.deleteAppointment = asyncHandler(async (req, res) => {
 
   return res.status(204).send();
 });
+
+// ---------------------------------------------------------
+// @desc    Listar todos os agendamentos de um paciente
+// @route   GET /api/appointments/patient/:patientId
+// @access  Private
+// ---------------------------------------------------------
+exports.getAppointmentsByPatient = asyncHandler(async (req, res) => {
+  const { patientId } = req.params;
+  const clinicId = req.clinicId;
+
+  // 1. Opcional, mas recomendado: verificar se o paciente existe na clínica
+  const patientExists = await Patient.exists({ _id: patientId, clinicId });
+  if (!patientExists) {
+    return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
+  }
+
+  // 2. Buscar todos os agendamentos que correspondem ao ID do paciente e da clínica
+  const appointments = await Appointment.find({
+    patient: patientId,
+    clinic: clinicId,
+  })
+  .sort({ startTime: -1 }) // Ordena do mais recente para o mais antigo
+  .lean();
+
+  // 3. Retornar a lista de agendamentos (pode ser uma lista vazia)
+  return res.status(200).json(appointments);
+});

@@ -44,7 +44,7 @@ exports.getRecordByAppointmentId = asyncHandler(async (req, res) => {
     appointment: appointmentId,
     clinic: clinicId,
   })
-    .populate('attachments', 'url fileType uploadedBy createdAt') // Popula anexos, se houver
+    .populate('attachments', 'url fileType uploadedBy createdAt attachments') // Popula anexos, se houver
     .lean();
 
   // Se não encontrar, retorna 404
@@ -210,4 +210,31 @@ exports.uploadAndAttachImage = asyncHandler(async (req, res) => {
     session.endSession();
     return res.status(500).json({ message: 'Erro ao processar upload/anexo.', error: err.message });
   }
+});
+
+exports.updateRecordEntry = asyncHandler(async (req, res) => {
+  const { recordId } = req.params;
+  const { content, appointmentId } = req.body;
+  const clinicId = req.clinicId;
+
+  if (!content) {
+    return res.status(400).json({ message: 'content é obrigatório.' });
+  }
+
+  const updated = await MedicalRecordEntry.findOneAndUpdate(
+    { _id: recordId, clinic: clinicId },
+    {
+      $set: {
+        content,
+        appointment: appointmentId || undefined,
+      },
+    },
+    { new: true }
+  ).populate('attachments', 'url fileType uploadedBy createdAt');
+
+  if (!updated) {
+    return res.status(404).json({ message: 'Prontuário não encontrado.' });
+  }
+
+  return res.status(200).json(updated);
 });

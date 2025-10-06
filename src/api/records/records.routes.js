@@ -15,7 +15,7 @@ router.get('/patient/:patientId', controller.getRecordEntriesForPatient);
 
 router.get('/appointment/:appointmentId', controller.getRecordByAppointmentId);
 
-
+router.put('/:recordId', controller.updateRecordEntry)
 // --- Gerenciamento de anexos ---
 
 // Adicionar anexos já existentes

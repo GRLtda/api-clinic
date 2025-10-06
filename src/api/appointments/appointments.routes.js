@@ -9,6 +9,7 @@ router.use(isAuthenticated, requireClinic);
 router.post('/', controller.createAppointment);
 router.get('/', controller.getAllAppointments);
 router.put('/:id', controller.updateAppointment);
+router.get('/patient/:patientId', controller.getAppointmentsByPatient);
 router.delete('/:id', controller.deleteAppointment);
 
 module.exports = router;

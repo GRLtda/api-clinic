@@ -44,3 +44,26 @@ exports.uploadImage = async (req, res) => {
     return res.status(500).json({ message: 'Erro ao fazer upload da imagem.', error: error.message });
   }
 };
+
+exports.deleteImage = async (req, res) => {
+  try {
+    const { uploadId } = req.params;
+    const clinicId = req.clinicId;
+
+    // Busca o upload no Mongo
+    const uploadDoc = await Upload.findOne({ _id: uploadId, clinic: clinicId });
+    if (!uploadDoc) {
+      return res.status(404).json({ message: 'Upload não encontrado.' });
+    }
+
+    // Remove do Cloudinary
+    await cloudinary.uploader.destroy(uploadDoc.public_id);
+
+    // Remove do banco
+    await Upload.deleteOne({ _id: uploadId });
+
+    return res.status(200).json({ message: 'Imagem excluída com sucesso.' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao excluir imagem.', error: error.message });
+  }
+};

@@ -7,5 +7,6 @@ const upload = require('../../middlewares/upload.middleware');
 
 // upload de imagem simples (não anexa automaticamente)
 router.post('/image', isAuthenticated, requireClinic, upload.single('image'), uploadController.uploadImage);
+router.delete('/:uploadId', isAuthenticated, requireClinic, uploadController.deleteImage);
 
 module.exports = router;

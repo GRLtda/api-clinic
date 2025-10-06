@@ -43,22 +43,48 @@ exports.createPatient = asyncHandler(async (req, res) => {
 
 // LISTAR (exclui soft-deletados)
 exports.getAllPatients = asyncHandler(async (req, res) => {
-  const page = Math.max(parseInt(req.query.page) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
-  const skip = (page - 1) * limit;
+  const { search, page = 1, limit = 10 } = req.query;
+  const pageNum = Math.max(parseInt(page), 1);
+  const limitNum = Math.min(Math.max(parseInt(limit), 1), 100);
+  const skip = (pageNum - 1) * limitNum;
 
-  const filter = { clinicId: req.clinicId, ...notDeleted };
+  const baseFilter = { clinicId: req.clinicId, ...notDeleted };
+  let finalFilter = baseFilter;
+  let sort = { name: 1 }; // padrão por nome
+
+  if (search && search.trim() !== '') {
+    const s = search.trim();
+
+    if (s.length < 3) {
+      // se a pesquisa for muito curta, usa regex (prefixo)
+      finalFilter = {
+        ...baseFilter,
+        $or: [
+          { name: new RegExp(`^${s}`, 'i') },
+          { cpf: new RegExp(`^${s}`, 'i') },
+        ],
+      };
+    } else {
+      // se a pesquisa for uma palavra maior, usa índice de texto
+      finalFilter = { ...baseFilter, $text: { $search: s } };
+      sort = { score: { $meta: 'textScore' } };
+    }
+  }
 
   const [totalPatients, patients] = await Promise.all([
-    Patient.countDocuments(filter),
-    Patient.find(filter).limit(limit).skip(skip).sort({ name: 1 }).lean(),
+    Patient.countDocuments(finalFilter),
+    Patient.find(finalFilter)
+      .sort(sort)
+      .limit(limitNum)
+      .skip(skip)
+      .lean(),
   ]);
 
   return res.status(200).json({
     total: totalPatients,
-    page,
-    pages: Math.ceil(totalPatients / limit) || 1,
-    limit,
+    page: pageNum,
+    pages: Math.ceil(totalPatients / limitNum) || 1,
+    limit: limitNum,
     data: patients,
   });
 });

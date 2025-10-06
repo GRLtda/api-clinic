@@ -61,13 +61,15 @@ patientSchema.index(
   { unique: true, sparse: true, partialFilterExpression: { deletedAt: { $exists: false } } }
 );
 
-// saída JSON limpa
+patientSchema.index({ name: 'text', cpf: 'text' });
+
 patientSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
+
 
 const Patient = mongoose.model('Patient', patientSchema);
 module.exports = Patient;
