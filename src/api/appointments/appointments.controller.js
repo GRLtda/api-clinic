@@ -123,6 +123,22 @@ exports.getAllAppointments = asyncHandler(async (req, res) => {
     end.setUTCHours(23,59,59,999);
   }
 
+  // Atualiza o status de agendamentos passados para "Não Compareceu"
+  const now = new Date();
+  const twoHoursInMs = 2 * 60 * 60 * 1000;
+  const cutoffTime = new Date(now.getTime() - twoHoursInMs);
+
+  await Appointment.updateMany(
+    {
+      clinic: req.clinicId,
+      status: 'Agendado',
+      endTime: { $lt: cutoffTime },
+    },
+    {
+      $set: { status: 'Não Compareceu' },
+    }
+  );
+
   const filter = {
     clinic: req.clinicId,
     startTime: { $gte: start, $lte: end },
@@ -135,9 +151,6 @@ exports.getAllAppointments = asyncHandler(async (req, res) => {
 
   return res.status(200).json(appointments);
 });
-
-
-
 
 // ---------------------------------------------------------
 // @desc    Atualizar um agendamento existente
@@ -229,13 +242,27 @@ exports.getAppointmentsByPatient = asyncHandler(async (req, res) => {
   const { patientId } = req.params;
   const clinicId = req.clinicId;
 
-  // 1. Opcional, mas recomendado: verificar se o paciente existe na clínica
   const patientExists = await Patient.exists({ _id: patientId, clinicId });
   if (!patientExists) {
     return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
   }
 
-  // 2. Buscar todos os agendamentos que correspondem ao ID do paciente e da clínica
+  const now = new Date();
+  const twoHoursInMs = 2 * 60 * 60 * 1000;
+  const cutoffTime = new Date(now.getTime() - twoHoursInMs);
+
+  await Appointment.updateMany(
+    {
+      clinic: clinicId,
+      patient: patientId,
+      status: 'Agendado',
+      endTime: { $lt: cutoffTime },
+    },
+    {
+      $set: { status: 'Não Compareceu' },
+    }
+  );
+
   const appointments = await Appointment.find({
     patient: patientId,
     clinic: clinicId,
@@ -243,6 +270,5 @@ exports.getAppointmentsByPatient = asyncHandler(async (req, res) => {
   .sort({ startTime: -1 }) // Ordena do mais recente para o mais antigo
   .lean();
 
-  // 3. Retornar a lista de agendamentos (pode ser uma lista vazia)
   return res.status(200).json(appointments);
 });
