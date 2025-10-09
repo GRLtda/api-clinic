@@ -2,11 +2,16 @@
 const Appointment = require('./appointments.model');
 const Patient = require('../patients/patients.model');
 const asyncHandler = require('../../utils/asyncHandler');
+const { DateTime } = require('luxon');
+
+const BR_TZ = 'America/Sao_Paulo';
 
 // ----------------- helpers -----------------
-const parseDateSafe = (value) => {
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
+const parseToUTC = (value) => {
+  if (!value) return null;
+  // interpreta horário local de Brasília e converte pra UTC
+  const dt = DateTime.fromISO(value, { zone: BR_TZ });
+  return dt.isValid ? dt.toUTC().toJSDate() : null;
 };
 
 const ensurePatientInClinic = async (patientId, clinicId) => {
@@ -18,7 +23,6 @@ const hasOverlap = async ({ clinicId, patientId, startTime, endTime, ignoreId = 
   const criteria = {
     clinic: clinicId,
     patient: patientId,
-    // overlap rule: (start < existing.end) AND (end > existing.start)
     startTime: { $lt: endTime },
     endTime: { $gt: startTime },
   };
@@ -43,8 +47,6 @@ const pickUpdateFields = (body) => {
 
 // ---------------------------------------------------------
 // @desc    Criar (agendar) uma nova consulta
-// @route   POST /api/appointments
-// @access  Private
 // ---------------------------------------------------------
 exports.createAppointment = asyncHandler(async (req, res) => {
   const { patient, startTime, endTime, notes, status, returnInDays, sendReminder } = req.body;
@@ -54,26 +56,21 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: 'Paciente, data de início e data de fim são obrigatórios.' });
   }
 
-  const start = parseDateSafe(startTime);
-  const end = parseDateSafe(endTime);
+  const start = parseToUTC(startTime);
+  const end = parseToUTC(endTime);
+
   if (!start || !end) {
-    return res.status(400).json({ message: 'Datas inválidas. Use um formato ISO válido.' });
+    return res.status(400).json({ message: 'Datas inválidas. Use formato ISO válido.' });
   }
   if (end <= start) {
     return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
   }
 
-  // paciente precisa pertencer à clínica
   const ok = await ensurePatientInClinic(patient, clinicId);
-  if (!ok) {
-    return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
-  }
+  if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
 
-  // conflito de horário (mesmo paciente, mesma clínica)
   const overlap = await hasOverlap({ clinicId, patientId: patient, startTime: start, endTime: end });
-  if (overlap) {
-    return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
-  }
+  if (overlap) return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
 
   const newAppointment = await Appointment.create({
     patient,
@@ -89,59 +86,41 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   return res.status(201).json(newAppointment);
 });
 
-
 // ---------------------------------------------------------
 // @desc    Listar todas as consultas (base do calendário)
-// @route   GET /api/appointments
-// @access  Private
 // ---------------------------------------------------------
-function parseDateUTC(value) {
-  const [y,m,d] = value.split('-').map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(Date.UTC(y, m-1, d)); // 00:00 UTC
-}
-
 exports.getAllAppointments = asyncHandler(async (req, res) => {
   let { startDate, endDate } = req.query;
 
-  let start, end;
+  let startUTC, endUTC;
 
   if (!startDate || !endDate) {
-    const now = new Date();
-    // pega data de hoje em UTC
-    const y = now.getUTCFullYear();
-    const m = now.getUTCMonth();
-    const d = now.getUTCDate();
-    start = new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
-    end   = new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
+    // usa hoje em horário de Brasília
+    startUTC = DateTime.now().setZone(BR_TZ).startOf('day').toUTC().toJSDate();
+    endUTC   = DateTime.now().setZone(BR_TZ).endOf('day').toUTC().toJSDate();
   } else {
-    start = parseDateUTC(startDate);
-    end   = parseDateUTC(endDate);
-    if (!start || !end) {
+    const sInTZ = DateTime.fromISO(startDate, { zone: BR_TZ }).startOf('day');
+    const eInTZ = DateTime.fromISO(endDate, { zone: BR_TZ }).endOf('day');
+    if (!sInTZ.isValid || !eInTZ.isValid) {
       return res.status(400).json({ message: 'Datas inválidas.' });
     }
-    end.setUTCHours(23,59,59,999);
+    startUTC = sInTZ.toUTC().toJSDate();
+    endUTC   = eInTZ.toUTC().toJSDate();
   }
 
-  // Atualiza o status de agendamentos passados para "Não Compareceu"
+  // Atualiza status de "Não Compareceu" para consultas passadas
   const now = new Date();
   const twoHoursInMs = 2 * 60 * 60 * 1000;
   const cutoffTime = new Date(now.getTime() - twoHoursInMs);
 
   await Appointment.updateMany(
-    {
-      clinic: req.clinicId,
-      status: 'Agendado',
-      endTime: { $lt: cutoffTime },
-    },
-    {
-      $set: { status: 'Não Compareceu' },
-    }
+    { clinic: req.clinicId, status: 'Agendado', endTime: { $lt: cutoffTime } },
+    { $set: { status: 'Não Compareceu' } }
   );
 
   const filter = {
     clinic: req.clinicId,
-    startTime: { $gte: start, $lte: end },
+    startTime: { $gte: startUTC, $lte: endUTC },
   };
 
   const appointments = await Appointment.find(filter)
@@ -154,8 +133,6 @@ exports.getAllAppointments = asyncHandler(async (req, res) => {
 
 // ---------------------------------------------------------
 // @desc    Atualizar um agendamento existente
-// @route   PUT /api/appointments/:id
-// @access  Private
 // ---------------------------------------------------------
 exports.updateAppointment = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -163,15 +140,14 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
 
   const payload = pickUpdateFields(req.body);
 
-  // validações coerentes com criação (quando os campos vierem)
   let start, end;
   if (payload.startTime) {
-    start = parseDateSafe(payload.startTime);
+    start = parseToUTC(payload.startTime);
     if (!start) return res.status(400).json({ message: 'startTime inválido.' });
     payload.startTime = start;
   }
   if (payload.endTime) {
-    end = parseDateSafe(payload.endTime);
+    end = parseToUTC(payload.endTime);
     if (!end) return res.status(400).json({ message: 'endTime inválido.' });
     payload.endTime = end;
   }
@@ -179,16 +155,13 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
   }
 
-  // se trocar paciente, garanta vínculo com a clínica
   if (payload.patient) {
     const ok = await ensurePatientInClinic(payload.patient, clinicId);
     if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
   }
 
-  // checa conflito somente se algum entre start/end/patient mudar
   const needsOverlapCheck = (payload.patient || payload.startTime || payload.endTime);
   if (needsOverlapCheck) {
-    // precisamos dos valores “atuais” para compor a verificação completa
     const current = await Appointment.findOne({ _id: id, clinic: clinicId }).select('patient startTime endTime').lean();
     if (!current) return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
 
@@ -216,9 +189,74 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------
+// @desc    Reagendar um atendimento
+// ---------------------------------------------------------
+exports.rescheduleAppointment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const clinicId = req.clinicId;
+  const {
+    startTime,
+    endTime,
+    notes,
+    appendNotes,
+    sendReminder,
+    resetStatus = true,
+  } = req.body || {};
+
+  if (!startTime || !endTime) {
+    return res.status(400).json({ message: 'startTime e endTime são obrigatórios para reagendar.' });
+  }
+
+  const start = parseToUTC(startTime);
+  const end = parseToUTC(endTime);
+  if (!start || !end) return res.status(400).json({ message: 'Datas inválidas.' });
+  if (end <= start) return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
+
+  const current = await Appointment.findOne({ _id: id, clinic: clinicId }).lean();
+  if (!current) return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
+
+  const allowedStatuses = ['Agendado', 'Confirmado'];
+  if (!allowedStatuses.includes(current.status)) {
+    return res.status(400).json({ message: `Não é possível reagendar um atendimento com status "${current.status}".` });
+  }
+
+  const overlap = await hasOverlap({
+    clinicId,
+    patientId: current.patient,
+    startTime: start,
+    endTime: end,
+    ignoreId: id,
+  });
+  if (overlap) return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
+
+  const update = { startTime: start, endTime: end };
+  if (resetStatus) update.status = 'Agendado';
+
+  if (typeof sendReminder === 'boolean') {
+    update.sendReminder = sendReminder;
+    update.remindersSent = { oneDayBefore: false, threeHoursBefore: false };
+  }
+
+  if (typeof notes === 'string') {
+    update.notes = notes.trim();
+  } else if (typeof appendNotes === 'string' && appendNotes.trim()) {
+    const sep = current.notes ? '\n' : '';
+    update.notes = `${current.notes || ''}${sep}${appendNotes.trim()}`;
+  }
+
+  const updated = await Appointment.findOneAndUpdate(
+    { _id: id, clinic: clinicId },
+    update,
+    { new: true, runValidators: true }
+  )
+    .populate('patient', 'name phone')
+    .lean();
+
+  return res.status(200).json(updated);
+});
+
+// ---------------------------------------------------------
 // @desc    Deletar (cancelar) um agendamento
-// @route   DELETE /api/appointments/:id
-// @access  Private
 // ---------------------------------------------------------
 exports.deleteAppointment = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -235,8 +273,6 @@ exports.deleteAppointment = asyncHandler(async (req, res) => {
 
 // ---------------------------------------------------------
 // @desc    Listar todos os agendamentos de um paciente
-// @route   GET /api/appointments/patient/:patientId
-// @access  Private
 // ---------------------------------------------------------
 exports.getAppointmentsByPatient = asyncHandler(async (req, res) => {
   const { patientId } = req.params;
@@ -252,23 +288,13 @@ exports.getAppointmentsByPatient = asyncHandler(async (req, res) => {
   const cutoffTime = new Date(now.getTime() - twoHoursInMs);
 
   await Appointment.updateMany(
-    {
-      clinic: clinicId,
-      patient: patientId,
-      status: 'Agendado',
-      endTime: { $lt: cutoffTime },
-    },
-    {
-      $set: { status: 'Não Compareceu' },
-    }
+    { clinic: clinicId, patient: patientId, status: 'Agendado', endTime: { $lt: cutoffTime } },
+    { $set: { status: 'Não Compareceu' } }
   );
 
-  const appointments = await Appointment.find({
-    patient: patientId,
-    clinic: clinicId,
-  })
-  .sort({ startTime: -1 }) // Ordena do mais recente para o mais antigo
-  .lean();
+  const appointments = await Appointment.find({ patient: patientId, clinic: clinicId })
+    .sort({ startTime: -1 })
+    .lean();
 
   return res.status(200).json(appointments);
 });

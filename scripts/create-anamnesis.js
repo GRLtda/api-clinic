@@ -15,14 +15,22 @@ const connectDB = async () => {
 };
 
 // Funções para gerar dados de exemplo
-const generateSampleQuestions = (name) => {
-  const commonQuestions = [
+const generateSampleQuestions = (name, numQuestions) => {
+  const questionTypes = [
     { title: 'Motivo da consulta?', questionType: 'long_text' },
     { title: 'Você tem alergias?', questionType: 'yes_no_dontknow' },
     { title: 'Qual tipo de dor?', questionType: 'single_choice', options: ['Aguda', 'Crônica'] },
     { title: 'Qual a frequência?', questionType: 'single_choice', options: ['Diariamente', 'Semanalmente', 'Mensalmente'] },
+    { title: 'Já fez cirurgia?', questionType: 'yes_no_dontknow' },
+    { title: 'Está tomando medicamentos?', questionType: 'long_text' },
+    { title: 'Tem histórico familiar?', questionType: 'long_text' }
   ];
-  return commonQuestions;
+  // Repete ou corta para o número desejado
+  const questions = [];
+  for (let i = 0; i < numQuestions; i++) {
+    questions.push(questionTypes[i % questionTypes.length]);
+  }
+  return questions;
 };
 
 // Função principal de automação
@@ -44,12 +52,19 @@ const runAutomation = async () => {
       return;
     }
 
-    console.log(`\nCriando ${numberOfTemplates} modelos de anamnese para a clinica ${clinicId}...\n`);
+    const numberOfQuestions = parseInt(readline.question('Quantas questões por modelo? '));
+    if (isNaN(numberOfQuestions) || numberOfQuestions <= 0) {
+      console.error('Número de questões inválido. Saindo...');
+      mongoose.disconnect();
+      return;
+    }
+
+    console.log(`\nCriando ${numberOfTemplates} modelos de anamnese para a clinica ${clinicId} com ${numberOfQuestions} questões cada...\n`);
 
     const templatesToCreate = [];
     for (let i = 0; i < numberOfTemplates; i++) {
       const templateName = `Anamnese Automatizada #${i + 1}`;
-      const questions = generateSampleQuestions(templateName);
+      const questions = generateSampleQuestions(templateName, numberOfQuestions);
 
       templatesToCreate.push({
         name: templateName,

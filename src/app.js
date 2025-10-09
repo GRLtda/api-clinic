@@ -31,4 +31,6 @@ app.use('/api/anamnesis-templates', anamnesisTemplateRoutes);
 app.use('/api', anamnesisResponseRoutes); 
 app.use('/api/uploads', uploadRoutes);
 
+
+
 module.exports = app;

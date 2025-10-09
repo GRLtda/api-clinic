@@ -181,7 +181,9 @@ exports.getAnamnesisForPatientByToken = asyncHandler(async (req, res) => {
 
   // Encontra a resposta da anamnese pelo token e popula o modelo
   const response = await AnamnesisResponse.findOne({ patientAccessToken: token })
-    .populate('template', 'name questions') // Puxa o nome e as perguntas do modelo
+    .populate('template', 'name questions') // Popula o modelo de anamnese
+    .populate('patient', 'name gender cpf')   // Popula os dados do paciente
+    .populate('clinic', 'name logoUrl')       // Popula os dados da clínica
     .lean(); // Retorna um objeto JavaScript simples
 
   // Validações de segurança
@@ -195,5 +197,31 @@ exports.getAnamnesisForPatientByToken = asyncHandler(async (req, res) => {
     return res.status(403).json({ message: 'O link para este formulário expirou.' });
   }
 
-  return res.status(200).json(response);
+  // Monta os dados do paciente conforme solicitado
+  let patientInfo = null;
+  if (response.patient) {
+    patientInfo = {
+      name: response.patient.name,
+      gender: response.patient.gender,
+      cpf: response.patient.cpf ? response.patient.cpf.substring(0, 3) : null,
+    };
+  }
+
+  // Monta os dados da clínica
+  let clinicInfo = null;
+  if (response.clinic) {
+    clinicInfo = {
+      name: response.clinic.name,
+      logoUrl: response.clinic.logoUrl,
+    };
+  }
+
+  // Remove os campos completos do response antes de retornar
+  const { patient, clinic, ...rest } = response;
+
+  return res.status(200).json({
+    ...rest,
+    patientInfo,
+    clinicInfo, // Adiciona a informação da clínica
+  });
 });
