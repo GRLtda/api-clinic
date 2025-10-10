@@ -32,12 +32,12 @@ const patientSchema = new Schema(
     cpf: { type: String, trim: true },
     address: addressSchema,
     clinicId: { type: Schema.Types.ObjectId, ref: 'Clinic', required: true, index: true },
-    deletedAt: { type: Date, default: undefined }, // Soft delete
+    deletedAt: { type: Date, default: undefined }, // Campo para Soft delete
   },
   { timestamps: true }
 );
 
-// ---------- Normalização (somente dígitos) ----------
+// ---------- Normalização (remove caracteres não numéricos do telefone e CPF) ----------
 function normalizeDoc(doc) {
   if (doc.phone) doc.phone = onlyDigits(doc.phone);
   if (doc.cpf) doc.cpf = onlyDigits(doc.cpf);
@@ -55,7 +55,9 @@ patientSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-// ---------- Índice de unicidade (apenas CPF por clínica, ignorando soft-deletados) ----------
+// ---------- ÍNDICES DO BANCO DE DADOS ----------
+
+// 1. Índice de unicidade para o CPF (ignora documentos com soft delete)
 patientSchema.index(
   { cpf: 1, clinicId: 1 },
   { unique: true, sparse: true, partialFilterExpression: { deletedAt: { $exists: false } } }
@@ -63,6 +65,8 @@ patientSchema.index(
 
 patientSchema.index({ name: 'text', cpf: 'text' });
 
+
+// ---------- Transformação do JSON de saída ----------
 patientSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
