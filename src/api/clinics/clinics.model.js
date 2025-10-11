@@ -7,7 +7,6 @@ const dayEnum = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'D
 const workingHoursSchema = new Schema(
   {
     day: { type: String, enum: dayEnum, required: true },
-    // HH:mm simples; mantém string como no seu design
     startTime: { type: String, trim: true, match: [/^\d{2}:\d{2}$/, 'Formato HH:mm inválido'], required: true },
     endTime:   { type: String, trim: true, match: [/^\d{2}:\d{2}$/, 'Formato HH:mm inválido'], required: true },
     isOpen: { type: Boolean, default: true },
@@ -38,9 +37,13 @@ const clinicSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: true,
-      unique: true, // um usuário só pode ser dono de UMA clínica
+      unique: true,
       index: true,
     },
+    staff: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    }],
     address: addressSchema,
     workingHours: { type: [workingHoursSchema], default: void 0 },
     plan: {

@@ -16,6 +16,19 @@ const userSchema = new Schema(
     },
     phone: { type: String, required: true, trim: true },
     password: { type: String, required: true, select: false },
+    clinic: {
+      type: Schema.Types.ObjectId,
+      ref: 'Clinic',
+    },
+    role: {
+      type: String,
+      enum: ['owner', 'gerente', 'medico', 'recepcionista'],
+      default: 'owner',
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: true }
 );
