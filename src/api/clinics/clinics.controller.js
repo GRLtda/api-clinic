@@ -86,13 +86,35 @@ exports.updateClinic = asyncHandler(async (req, res) => {
 
 exports.getClinicSummary = asyncHandler(async (req, res) => {
     const clinicId = req.clinicId;
+    const { startDate, endDate } = req.query;
 
-    // Datas para filtrar "hoje"
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    let startOfDay;
+    let endOfDay;
 
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    if (startDate && endDate) {
+        startOfDay = new Date(startDate);
+        startOfDay.setUTCHours(0, 0, 0, 0);
+
+        endOfDay = new Date(endDate);
+        endOfDay.setUTCHours(23, 59, 59, 999);
+    } else {
+        // Datas para filtrar "hoje"
+        startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+    }
+
+    // Atualiza status de "Não Compareceu" para consultas passadas
+    const now = new Date();
+    const twoHoursInMs = 2 * 60 * 60 * 1000;
+    const cutoffTime = new Date(now.getTime() - twoHoursInMs);
+
+    await Appointment.updateMany(
+        { clinic: clinicId, status: 'Agendado', endTime: { $lt: cutoffTime } },
+        { $set: { status: 'Não Compareceu' } }
+    );
 
     // 1. Contagem total de pacientes (como antes)
     const totalPatientsPromise = Patient.countDocuments({ clinicId: clinicId });
