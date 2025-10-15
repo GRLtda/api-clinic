@@ -46,6 +46,7 @@ const clinicSchema = new Schema(
     }],
     address: addressSchema,
     workingHours: { type: [workingHoursSchema], default: void 0 },
+    allowAppointmentsOutsideWorkingHours: { type: Boolean, default: false },
     plan: {
       type: String,
       enum: ['basic', 'premium', 'enterprise'],

@@ -28,8 +28,9 @@ const pickUpdateFields = (body) => {
     address,
     workingHours,
     plan,
+    allowAppointmentsOutsideWorkingHours,
   } = body || {};
-  return { name, cnpj, logoUrl, marketingName, responsibleName, address, workingHours, plan };
+  return { name, cnpj, logoUrl, marketingName, responsibleName, address, workingHours, plan, allowAppointmentsOutsideWorkingHours };
 };
 
 // @desc    Criar a clínica para o usuário logado
@@ -86,35 +87,13 @@ exports.updateClinic = asyncHandler(async (req, res) => {
 
 exports.getClinicSummary = asyncHandler(async (req, res) => {
     const clinicId = req.clinicId;
-    const { startDate, endDate } = req.query;
 
-    let startOfDay;
-    let endOfDay;
+    // Datas para filtrar "hoje"
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-    if (startDate && endDate) {
-        startOfDay = new Date(startDate);
-        startOfDay.setUTCHours(0, 0, 0, 0);
-
-        endOfDay = new Date(endDate);
-        endOfDay.setUTCHours(23, 59, 59, 999);
-    } else {
-        // Datas para filtrar "hoje"
-        startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-
-        endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
-    }
-
-    // Atualiza status de "Não Compareceu" para consultas passadas
-    const now = new Date();
-    const twoHoursInMs = 2 * 60 * 60 * 1000;
-    const cutoffTime = new Date(now.getTime() - twoHoursInMs);
-
-    await Appointment.updateMany(
-        { clinic: clinicId, status: 'Agendado', endTime: { $lt: cutoffTime } },
-        { $set: { status: 'Não Compareceu' } }
-    );
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
 
     // 1. Contagem total de pacientes (como antes)
     const totalPatientsPromise = Patient.countDocuments({ clinicId: clinicId });
