@@ -29,6 +29,11 @@ const userSchema = new Schema(
       type: Boolean,
       default: true,
     },
+    plan: {
+      type: String,
+      enum: ['free', 'basic', 'premium'],
+      default: 'free',
+    },
   },
   { timestamps: true }
 );

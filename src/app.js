@@ -11,6 +11,7 @@ const recordsRoutes = require('./api/records/records.routes');
 const anamnesisTemplateRoutes = require('./api/anamnesis/anamnesis-template.routes');
 const anamnesisResponseRoutes = require('./api/anamnesis/anamnesis-response.routes');
 const employeeRoutes = require('./api/employees/employees.routes');
+const paymentRoutes = require('./api/payments/payments.routes');
 
 const app = express();
 
@@ -32,5 +33,6 @@ app.use('/api/anamnesis-templates', anamnesisTemplateRoutes);
 app.use('/api', anamnesisResponseRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/employees', employeeRoutes);
+app.use('/api/payments', paymentRoutes);
 
 module.exports = app;

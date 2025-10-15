@@ -2,6 +2,7 @@ const Clinic = require('./clinics.model');
 const Patient = require('../patients/patients.model');
 const Appointment = require('../appointments/appointments.model');
 const asyncHandler = require('../../utils/asyncHandler');
+const User = require('../users/users.model');
 
 // helpers: whitelists de campos permitidos
 const pickCreateFields = (body) => {
@@ -38,6 +39,13 @@ const pickUpdateFields = (body) => {
 // @access  Private
 exports.createClinic = asyncHandler(async (req, res) => {
   const userId = req.user._id;
+
+  const user = await User.findById(userId);
+
+  if (user.plan === 'free') {
+    return res.status(403).json({ message: 'Você precisa de um plano pago para criar uma clínica.' });
+  }
+
 
   // checa se já existe clínica para o owner
   const existingClinic = await Clinic.findOne({ owner: userId }).select('_id').lean();
