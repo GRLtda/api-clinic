@@ -18,10 +18,10 @@ const connectDB = async () => {
 const generateSampleQuestions = (name, numQuestions) => {
   const questionTypes = [
     { title: 'Motivo da consulta?', questionType: 'long_text' },
-    { title: 'Você tem alergias?', questionType: 'yes_no_dontknow' },
+    { title: 'Você tem alergias?', questionType: 'long_text' },
     { title: 'Qual tipo de dor?', questionType: 'single_choice', options: ['Aguda', 'Crônica'] },
     { title: 'Qual a frequência?', questionType: 'single_choice', options: ['Diariamente', 'Semanalmente', 'Mensalmente'] },
-    { title: 'Já fez cirurgia?', questionType: 'yes_no_dontknow' },
+    { title: 'Já fez cirurgia?', questionType: 'long_text' },
     { title: 'Está tomando medicamentos?', questionType: 'long_text' },
     { title: 'Tem histórico familiar?', questionType: 'long_text' }
   ];

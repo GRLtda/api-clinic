@@ -9,8 +9,7 @@ const connectDB = async () => {
 
   try {
     await mongoose.connect(process.env.MONGO_URI, {
-      // useNewUrlParser/useUnifiedTopology não são mais necessários nas versões atuais
-      autoIndex: false, // em prod, preferir gerenciar índices manualmente
+      autoIndex: true, // em prod, preferir gerenciar índices manualmente
       maxPoolSize: 20,  // melhora concorrência
     });
 
