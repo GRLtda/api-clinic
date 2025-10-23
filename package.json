@@ -16,7 +16,11 @@
     "mongoose": "^8.18.2",
     "multer": "^2.0.2",
     "nanoid": "^3.3.7",
-    "supertest": "^7.1.4"
+    "node-cron": "^4.2.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "supertest": "^7.1.4",
+    "whatsapp-web.js": "^1.34.1"
   },
   "scripts": {
     "dev": "node src/server.js",
