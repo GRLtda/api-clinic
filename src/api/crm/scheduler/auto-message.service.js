@@ -11,44 +11,59 @@ const {
   LOG_STATUS,
   ACTION_TYPES,
 } = require("../logs/message-log.model");
-const { formatPhoneNumber } = require("../utils/phone-formatter");
 
 // ===================================================================
 // UTILS DE FORMATAÇÃO E PREENCHIMENTO
 // ===================================================================
 
-/**
- * Preenche o template com os dados dinâmicos.
- */
+const formatPhoneForBrazil = (phone) => {
+  if (!phone) return phone;
+
+  // Remove todos os caracteres não numéricos
+  const cleanPhone = phone.replace(/\D/g, "");
+
+  // Se já tem o prefixo 55, retorna como está
+  if (cleanPhone.startsWith("55")) {
+    return cleanPhone;
+  }
+
+  // Se tem 11 dígitos (DDD + 9 dígitos), adiciona o 55
+  if (cleanPhone.length === 11) {
+    return `55${cleanPhone}`;
+  }
+
+  // Se tem 10 dígitos (DDD + 8 dígitos), adiciona o 55
+  if (cleanPhone.length === 10) {
+    return `55${cleanPhone}`;
+  }
+
+  // Para outros casos, adiciona o 55 no início
+  return `55${cleanPhone}`;
+};
+
 const fillTemplate = (templateContent, data) => {
   let content = templateContent;
 
-  // Variáveis do paciente/clínica (sempre disponíveis)
+  // CORREÇÃO: Substitui com e sem espaços
   content = content.replace(/{ paciente }/g, data.patientName || "Paciente");
+  content = content.replace(/{paciente}/g, data.patientName || "Paciente");
+
   content = content.replace(/{ clinica }/g, data.clinicName || "Clínica");
   content = content.replace(/{ nome_medico }/g, data.doctorName || "Dr(a).");
 
-  // Variáveis da consulta (se existirem)
   content = content.replace(/{ data_consulta }/g, data.appointmentDate || "");
   content = content.replace(/{ hora_consulta }/g, data.appointmentTime || "");
 
-  // Por enquanto, remove a variável de anamnese se não for fornecida (futura implementação)
   content = content.replace(/{ link_anamnese }/g, data.anamnesisLink || "");
 
   return content.trim();
 };
 
-/**
- * Formata um objeto Date para a string de data (dd/mm/aaaa)
- */
 const formatDate = (date) => {
   if (!date) return "";
   return new Date(date).toLocaleDateString("pt-BR");
 };
 
-/**
- * Formata um objeto Date para a string de hora (hh:mm)
- */
 const formatTime = (date) => {
   if (!date) return "";
   return new Date(date).toLocaleTimeString("pt-BR", {
@@ -69,10 +84,8 @@ const trySendMessageAndLog = async ({
   settingType,
   templateId,
 }) => {
-  // Formata o número de telefone com prefixo 55 do Brasil
-  const formattedPhone = formatPhoneNumber(recipientPhone);
+  const formattedPhone = formatPhoneForBrazil(recipientPhone);
 
-  // 1. Cria o log de tentativa
   let logEntry = await createLogEntry({
     clinic: clinicId,
     patient: patientId,
@@ -88,38 +101,193 @@ const trySendMessageAndLog = async ({
   });
 
   try {
-    // 2. Tenta inicializar/restaurar o cliente (CRÍTICO)
     const client = await initializeClient(clinicId);
 
-    // Se a instância estiver pronta, mas ainda no estágio de QR Code (sem conexão)
     if (client.qrCode) {
-      throw new Error(
-        `Cliente WhatsApp da clínica ${clinicId} não está conectado (Aguardando QR Code).`
+      // Se não está conectado, marca como pendente para retry posterior
+      await MessageLog.findByIdAndUpdate(logEntry._id, {
+        status: LOG_STATUS.PENDING_CONNECTION,
+        errorMessage: "Cliente WhatsApp não conectado - aguardando conexão",
+      });
+
+      const timestamp = new Date().toLocaleString("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+      });
+      console.log(
+        `[${settingType} ${timestamp}] Cliente não conectado. Mensagem ${logEntry._id} marcada para retry quando conectar.`
       );
+      return;
     }
 
-    // 3. Tenta enviar a mensagem
     const result = await sendMessage(clinicId, formattedPhone, finalMessage);
 
-    // 4. Atualiza o log com o sucesso
     await MessageLog.findByIdAndUpdate(logEntry._id, {
       status: LOG_STATUS.DELIVERED,
       wwebjsMessageId: result.id.id,
     });
 
+    const timestamp = new Date().toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+    });
     console.log(
-      `[${settingType}] Mensagem enviada para ${formattedPhone}. Log ID: ${logEntry._id}`
+      `[${settingType} ${timestamp}] Mensagem enviada para ${formattedPhone}. Log ID: ${logEntry._id}`
     );
   } catch (error) {
-    // 5. Atualiza o log com o erro
     await MessageLog.findByIdAndUpdate(logEntry._id, {
       status: LOG_STATUS.ERROR_WHATSAPP,
       errorMessage: error.message,
     });
+    const timestamp = new Date().toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+    });
     console.error(
-      `[${settingType}] ERRO ao enviar mensagem para ${formattedPhone}: ${error.message}`
+      `[${settingType} ${timestamp}] ERRO ao enviar mensagem para ${formattedPhone}: ${error.message}`
     );
   }
+};
+
+// ===================================================================
+// LÓGICA DE RETRY DE MENSAGENS PENDENTES
+// ===================================================================
+
+const retryPendingMessages = async (clinicId) => {
+  const timestamp = new Date().toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  });
+
+  console.log(
+    `[RETRY ${timestamp}] Verificando mensagens pendentes para clínica ${clinicId}...`
+  );
+
+  try {
+    // Primeiro verifica se o cliente está conectado
+    const { getClientStatus } = require("../conexao/whatsapp.client");
+    const clientStatus = getClientStatus(clinicId);
+
+    if (clientStatus !== "connected") {
+      console.log(
+        `[RETRY ${timestamp}] Cliente ${clinicId} não está conectado (status: ${clientStatus}). Pulando retry.`
+      );
+      return;
+    }
+
+    // Busca mensagens pendentes por falta de conexão
+    const pendingMessages = await MessageLog.find({
+      clinic: clinicId,
+      status: LOG_STATUS.PENDING_CONNECTION,
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Últimas 24h
+    })
+      .populate("patient", "name phone")
+      .populate("template");
+
+    if (pendingMessages.length === 0) {
+      console.log(
+        `[RETRY ${timestamp}] Nenhuma mensagem pendente para clínica ${clinicId}.`
+      );
+      return;
+    }
+
+    console.log(
+      `[RETRY ${timestamp}] Encontradas ${pendingMessages.length} mensagens pendentes para retry.`
+    );
+
+    for (const messageLog of pendingMessages) {
+      try {
+        const formattedPhone = formatPhoneForBrazil(messageLog.recipientPhone);
+        const result = await sendMessage(
+          clinicId,
+          formattedPhone,
+          messageLog.messageContent
+        );
+
+        await MessageLog.findByIdAndUpdate(messageLog._id, {
+          status: LOG_STATUS.DELIVERED,
+          wwebjsMessageId: result.id.id,
+          retryCount: (messageLog.retryCount || 0) + 1,
+        });
+
+        console.log(
+          `[RETRY ${timestamp}] Mensagem ${messageLog._id} reenviada com sucesso para ${formattedPhone}.`
+        );
+      } catch (error) {
+        await MessageLog.findByIdAndUpdate(messageLog._id, {
+          status: LOG_STATUS.ERROR_WHATSAPP,
+          errorMessage: `Retry falhou: ${error.message}`,
+          retryCount: (messageLog.retryCount || 0) + 1,
+        });
+
+        console.error(
+          `[RETRY ${timestamp}] Falha ao reenviar mensagem ${messageLog._id}: ${error.message}`
+        );
+      }
+    }
+
+    console.log(
+      `[RETRY ${timestamp}] Finalizado retry de mensagens pendentes para clínica ${clinicId}.`
+    );
+  } catch (error) {
+    console.error(
+      `[RETRY ${timestamp}] Erro ao processar mensagens pendentes: ${error.message}`
+    );
+  }
+};
+
+// ===================================================================
+// LÓGICA DE AQUECIMENTO DA CONEXÃO (WARM-UP)
+// ===================================================================
+
+const runClientWarmUp = async () => {
+  const now = new Date();
+  const timestamp = now.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  });
+  console.log(
+    `[WARMUP ${timestamp}] Iniciando aquecimento de conexões (3 min antes)...`
+  );
+
+  // Verifica agendamentos entre 3 e 4 minutos à frente.
+  const targetStart = new Date(now.getTime() + 3 * 60 * 1000);
+  const targetEnd = new Date(now.getTime() + 4 * 60 * 1000);
+
+  // Busca IDs únicos das clínicas que têm agendamentos em 3-4 minutos
+  const appointments = await Appointment.find({
+    startTime: {
+      $gte: targetStart,
+      $lte: targetEnd,
+    },
+    status: { $in: ["Agendado", "Confirmado"] },
+  }).distinct("clinic");
+
+  if (appointments.length === 0) {
+    console.log(
+      `[WARMUP ${timestamp}] Nenhuma clínica com agendamento próximo.`
+    );
+    return;
+  }
+
+  for (const clinicId of appointments) {
+    // Tenta iniciar/restaurar o cliente para esta clínica
+    const client = await initializeClient(clinicId);
+    const status =
+      client.qrCode === null
+        ? "conectado"
+        : client.qrCode
+        ? "aguardando QR"
+        : "iniciando";
+    console.log(
+      `[WARMUP ${timestamp}] Cliente para ${clinicId} acionado. Status atual: ${status}.`
+    );
+
+    // Se o cliente está conectado, tenta reenviar mensagens pendentes
+    if (client.qrCode === null) {
+      console.log(
+        `[WARMUP ${timestamp}] Cliente ${clinicId} conectado. Tentando reenviar mensagens pendentes...`
+      );
+      await retryPendingMessages(clinicId);
+    }
+  }
+
+  console.log(`[WARMUP ${timestamp}] Finalizado aquecimento de conexões.`);
 };
 
 // ===================================================================
@@ -127,15 +295,17 @@ const trySendMessageAndLog = async ({
 // ===================================================================
 
 const checkAndSendAppointmentReminders = async (type, daysOffset) => {
-  console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
+  const now = new Date();
+  const timestamp = now.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  });
+  console.log(`[SCHEDULER ${timestamp}] Iniciando verificação de ${type}...`);
 
-  // 1. Encontra TODAS as configurações ativas para o TIPO
   const activeSettings = await MessageSetting.find({
     type: type,
     isActive: true,
   })
     .populate("template")
-    // Popula clínica e o dono (médico) da clínica
     .populate({
       path: "clinic",
       select: "name owner",
@@ -145,7 +315,11 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
       },
     });
 
-  if (activeSettings.length === 0) return;
+  if (activeSettings.length === 0) {
+    // Esta mensagem está correta: Não há nenhuma clínica com esta configuração ATIVA.
+    console.log(`[SCHEDULER ${timestamp}] Nenhuma clínica com ${type} ativo.`);
+    return;
+  }
 
   for (const setting of activeSettings) {
     const clinicId = setting.clinic._id;
@@ -154,21 +328,35 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
     const templateContent = setting.template.content;
     const templateId = setting.template._id;
 
-    const now = new Date();
     let targetStart = new Date(now);
     let targetEnd = new Date(now);
 
-    // Define o intervalo de tempo para a busca
+    // --- DEFINIÇÃO DA JANELA DE BUSCA ---
     if (daysOffset > 0) {
-      // Gatilhos de 1 ou 2 dias antes
+      // Gatilhos de 1 ou 2 dias antes (Diário)
       targetStart.setDate(now.getDate() + daysOffset);
       targetEnd.setDate(targetStart.getDate());
       targetStart.setHours(0, 0, 0, 0);
       targetEnd.setHours(23, 59, 59, 999);
-    } else {
-      // Gatilho APPOINTMENT_1_MIN_BEFORE (próximos 5 minutos)
-      targetStart = new Date(now.getTime() - 1 * 60 * 1000); // Começa 1 minuto atrás
-      targetEnd = new Date(now.getTime() + 4 * 60 * 1000); // Termina 4 minutos à frente
+    } else if (type === "APPOINTMENT_1_MIN_BEFORE") {
+      // CORREÇÃO: Busca agendamentos que começam exatamente em 1 minuto
+      // Remove a janela de 2 minutos que estava causando o envio antecipado
+      const oneMinuteFromNow = new Date(now.getTime() + 1 * 60 * 1000);
+      targetStart = new Date(oneMinuteFromNow.getTime() - 30 * 1000); // 30 segundos antes
+      targetEnd = new Date(oneMinuteFromNow.getTime() + 30 * 1000); // 30 segundos depois
+      console.log(
+        `[${type} ${timestamp}] Buscando agendamentos entre ${targetStart.toLocaleString(
+          "pt-BR"
+        )} e ${targetEnd.toLocaleString("pt-BR")}`
+      );
+    }
+
+    // Evita o processamento de agendamentos que já passaram
+    if (targetEnd <= now) {
+      console.log(
+        `[${type} ${timestamp}] Aviso: Janela de busca para ${clinicId} está no passado. Pulando.`
+      );
+      continue;
     }
 
     // Busca agendamentos relevantes
@@ -202,7 +390,12 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
       });
     }
   }
-  console.log(`[SCHEDULER] Finalizado verificação de ${type}.`);
+  const finalTimestamp = new Date().toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  });
+  console.log(
+    `[SCHEDULER ${finalTimestamp}] Finalizado verificação de ${type}.`
+  );
 };
 
 // ===================================================================
@@ -211,7 +404,11 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
 
 const checkAndSendBirthdayWishes = async () => {
   const type = "PATIENT_BIRTHDAY";
-  console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
+  const now = new Date();
+  const timestamp = now.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  });
+  console.log(`[SCHEDULER ${timestamp}] Iniciando verificação de ${type}...`);
 
   const activeSettings = await MessageSetting.find({
     type: type,
@@ -236,8 +433,8 @@ const checkAndSendBirthdayWishes = async () => {
     const today = new Date();
     const todayDay = today.getDate();
     const todayMonth = today.getMonth() + 1;
+    const startOfDay = new Date(today.setHours(0, 0, 0, 0));
 
-    // Busca pacientes que fazem aniversário HOJE
     const birthdayPatients = await Patient.find({
       clinicId: clinicId,
       $expr: {
@@ -249,6 +446,26 @@ const checkAndSendBirthdayWishes = async () => {
     });
 
     for (const patientData of birthdayPatients) {
+      const alreadySent = await MessageLog.findOne({
+        clinic: clinicId,
+        patient: patientData._id,
+        settingType: type,
+        status: {
+          $in: [LOG_STATUS.SENT_ATTEMPT, LOG_STATUS.DELIVERED, LOG_STATUS.READ],
+        },
+        createdAt: { $gte: startOfDay },
+      });
+
+      if (alreadySent) {
+        const skipTimestamp = new Date().toLocaleString("pt-BR", {
+          timeZone: "America/Sao_Paulo",
+        });
+        console.log(
+          `[${type} ${skipTimestamp}] Mensagem para ${patientData.name} (${patientData.phone}) já foi enviada hoje. Pulando.`
+        );
+        continue;
+      }
+
       const finalMessage = fillTemplate(templateContent, {
         patientName: patientData.name,
         clinicName: clinicName,
@@ -265,32 +482,62 @@ const checkAndSendBirthdayWishes = async () => {
       });
     }
   }
-  console.log(`[SCHEDULER] Finalizado verificação de ${type}.`);
+  const finalTimestamp = new Date().toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  });
+  console.log(
+    `[SCHEDULER ${finalTimestamp}] Finalizado verificação de ${type}.`
+  );
 };
 
 // ===================================================================
 // INICIALIZAÇÃO DO CRON
 // ===================================================================
 
+// Exporta a função de retry para uso externo
+exports.retryPendingMessages = retryPendingMessages;
+
 exports.startAutoMessageScheduler = () => {
   // CRON JOB 1: A CADA MINUTO
-  // Usado para gatilhos de alta frequência (ex: 1 MINUTO antes)
   cron.schedule("*/1 * * * *", () => {
-    // Verifica agendamentos com 1 minuto de antecedência (dentro da janela de 5 minutos)
+    // 1. WARM-UP: Roda para todas as clínicas com agendamentos próximos (3-4 min)
+    runClientWarmUp();
+
+    // 2. ENVIO: Roda apenas para clínicas que ATIVARAM o gatilho "1 minuto antes" no DB.
     checkAndSendAppointmentReminders("APPOINTMENT_1_MIN_BEFORE", 0);
   });
 
   // CRON JOB 2: DIÁRIO
-  // Roda todos os dias à 01:00 da manhã
   cron.schedule("0 1 * * *", () => {
-    // Lembrete de 2 dias antes
     checkAndSendAppointmentReminders("APPOINTMENT_2_DAYS_BEFORE", 2);
-
-    // Lembrete de 1 dia antes
     checkAndSendAppointmentReminders("APPOINTMENT_1_DAY_BEFORE", 1);
-
-    // Aniversários
     checkAndSendBirthdayWishes();
+  });
+
+  // CRON JOB 3: RETRY DE MENSAGENS PENDENTES A CADA 5 MINUTOS
+  cron.schedule("*/5 * * * *", async () => {
+    const timestamp = new Date().toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+    });
+    console.log(
+      `[RETRY_SCHEDULER ${timestamp}] Verificando mensagens pendentes em todas as clínicas...`
+    );
+
+    try {
+      // Busca todas as clínicas que têm mensagens pendentes
+      const clinicsWithPendingMessages = await MessageLog.distinct("clinic", {
+        status: LOG_STATUS.PENDING_CONNECTION,
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Últimas 24h
+      });
+
+      for (const clinicId of clinicsWithPendingMessages) {
+        await retryPendingMessages(clinicId);
+      }
+    } catch (error) {
+      console.error(
+        `[RETRY_SCHEDULER ${timestamp}] Erro ao processar retry: ${error.message}`
+      );
+    }
   });
 
   console.log("--- Agendador de Mensagens Automáticas Iniciado. ---");

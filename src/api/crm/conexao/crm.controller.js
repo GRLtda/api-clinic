@@ -121,3 +121,22 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 });
+
+/**
+ * @desc    Força retry de mensagens pendentes
+ * @route   POST /api/crm/retry-pending-messages
+ * @access  Private (Requer clínica)
+ */
+exports.retryPendingMessages = expressAsyncHandler(async (req, res) => {
+  const clinicId = req.clinicId.toString();
+
+  try {
+    const { triggerRetryOnConnection } = require("./whatsapp.client");
+    await triggerRetryOnConnection(clinicId);
+    res.status(200).json({
+      message: "Retry de mensagens pendentes iniciado com sucesso.",
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
