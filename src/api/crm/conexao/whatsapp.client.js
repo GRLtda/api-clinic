@@ -1,7 +1,7 @@
 // src/api/crm/conexao/whatsapp.client.js
 
 // Importações do whatsapp-web.js
-const { Client } = require("whatsapp-web.js");
+const { Client } = require("whatsapp-web.js"); // Usará o puppeteer-core
 const { MongoStore } = require("wwebjs-mongo");
 const { RemoteAuth } = require("whatsapp-web.js");
 
@@ -9,32 +9,30 @@ const { RemoteAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
 const mongoose = require("mongoose");
 const path = require("path");
-
-// ===================================================================
-// ARMAZENAMENTO E CONFIGURAÇÃO GLOBAL
-// ===================================================================
-
-const clients = new Map();
-const qrCodes = new Map();
-const creatingQr = new Map();
-let mongoStore;
+const os = require("os");
 
 // ===================================================================
 // DETECÇÃO DE AMBIENTE
 // ===================================================================
-// Checa se estamos rodando em um ambiente serverless conhecido (como Vercel)
-// Você pode adicionar outros, como process.env.LAMBDA_TASK_ROOT
 const IS_SERVERLESS = process.env.VERCEL === "1";
 
 let chromium;
 if (IS_SERVERLESS) {
   try {
-    // Tenta carregar o pacote serverless APENAS se estivermos no serverless
-    chromium = require("@sparticuz/chrome-aws-lambda");
+    // Tenta carregar o NOVO pacote serverless
+    chromium = require("@sparticuz/chromium");
   } catch (e) {
-    console.error("Falha ao carregar @sparticuz/chrome-aws-lambda", e);
+    console.error("Falha ao carregar @sparticuz/chromium", e);
   }
 }
+
+// ===================================================================
+// ARMAZENAMENTO E CONFIGURAÇÃO GLOBAL
+// ===================================================================
+const clients = new Map();
+const qrCodes = new Map();
+const creatingQr = new Map();
+let mongoStore;
 
 // (initializeMongoStore permanece o mesmo)
 const initializeMongoStore = () => {
@@ -128,14 +126,8 @@ const initializeClient = async (clinicId) => {
   // CONFIGURAÇÃO CONDICIONAL (Local vs Serverless)
   // ===================================================================
 
-  // Define o caminho de cache.
-  // path.join garante que vai usar /tmp (Linux) ou \AppData\Local\Temp (Windows)
-  const dataPath = path.join(
-    require("os").tmpdir(), // <-- Pega o diretório temporário CORRETO
-    ".wwebjs_auth",
-    `session-${id}`
-  );
-
+  // Usa o diretório temporário padrão do sistema operacional
+  const dataPath = path.join(os.tmpdir(), ".wwebjs_auth", `session-${id}`);
   console.log(`[CLIENT] Usando dataPath: ${dataPath}`);
 
   const authStrategy = new RemoteAuth({
@@ -147,7 +139,7 @@ const initializeClient = async (clinicId) => {
 
   // Configurações do Puppeteer
   let puppeteerConfig = {
-    headless: true, // Sempre headless
+    headless: 'new', // <-- MUDANÇA: 'new' é o novo padrão para headless
     dataPath: dataPath,
     args: [
       "--no-sandbox",
@@ -156,45 +148,39 @@ const initializeClient = async (clinicId) => {
       "--disable-accelerated-2d-canvas",
       "--no-first-run",
       "--no-zygote",
-      "--single-process", // <- Pode ajudar em ambientes com poucos recursos
+      "--single-process",
       "--disable-gpu",
     ],
   };
 
   if (IS_SERVERLESS) {
-    // Configuração SERVERLESS (usando @sparticuz/chrome-aws-lambda)
-    console.log("[CLIENT] Detectado ambiente Serverless. Usando Chromium AWS.");
-    if (!chromium || !chromium.executablePath) {
+    // Configuração SERVERLESS (usando @sparticuz/chromium)
+    console.log("[CLIENT] Detectado ambiente Serverless. Usando @sparticuz/chromium.");
+    if (!chromium || !(await chromium.executablePath())) { // <-- MUDANÇA: Checagem mais robusta
       throw new Error(
-        "Ambiente serverless detectado, mas @sparticuz/chrome-aws-lambda falhou ao carregar."
+        "Ambiente serverless detectado, mas @sparticuz/chromium falhou ao carregar."
       );
     }
+
     puppeteerConfig.executablePath = await chromium.executablePath();
     puppeteerConfig.args = [
       ...chromium.args,
-      ...puppeteerConfig.args, // Adiciona nossos args extras
+      ...puppeteerConfig.args,
     ];
     puppeteerConfig.defaultViewport = chromium.defaultViewport;
-    puppeteerConfig.headless = chromium.headless;
+    
   } else {
-    // Configuração LOCAL (Windows/Mac/Linux com Chrome instalado)
+    // Configuração LOCAL
     console.log(
-      "[CLIENT] Detectado ambiente Local. Usando puppeteer/chrome local."
+      "[CLIENT] Detectado ambiente Local. Usando puppeteer-core/chrome local."
     );
-    // Para rodar localmente, você pode precisar do 'puppeteer'
-    // Se o 'whatsapp-web.js' não o baixou, rode: npm install puppeteer
-    // Se você tem o Google Chrome instalado, pode tentar adicionar:
-    // puppeteerConfig.executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    // puppeteer-core tentará encontrar uma instalação local do Chrome.
   }
 
   const client = new Client({
     authStrategy: authStrategy,
     puppeteer: puppeteerConfig,
-    webVersionCache: {
-      type: "remote",
-      remotePath:
-        "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html",
-    },
+    // webVersionCache removido
   });
 
   // ===================================================================
