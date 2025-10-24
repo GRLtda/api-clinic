@@ -1,24 +1,24 @@
 // src/api/crm/crm.controller.js
 
 const expressAsyncHandler = require('express-async-handler');
-const { captureException } = require('../../utils/sentry');
-const Patient = require('../../api/patients/patients.model');
-const Clinic = require('../../api/clinics/clinics.model');
-const MessageTemplate = require('./modelos/message-template.model');
-const Appointment = require('../../api/appointments/appointments.model');
-const { createLogEntry } = require('./logs/message-log.controller');
+const { captureException } = require('../../../utils/sentry');
+const Patient = require('../../../api/patients/patients.model');
+const Clinic = require('../../../api/clinics/clinics.model');
+const MessageTemplate = require('../modelos/message-template.model');
+const Appointment = require('../../../api/appointments/appointments.model');
+const { createLogEntry } = require('../logs/message-log.controller');
 const {
     MessageLog,
     LOG_STATUS,
     ACTION_TYPES,
-} = require('./logs/message-log.model');
+} = require('../logs/message-log.model');
 const { 
     initializeClient, 
     sendMessage,
     logoutAndRemoveClient,
     clients,
     qrCodes
-} = require('./conexao/whatsapp.client'); 
+} = require('./whatsapp.client'); 
 
 
 // ===================================================================
