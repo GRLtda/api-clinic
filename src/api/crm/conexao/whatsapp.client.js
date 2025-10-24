@@ -7,6 +7,7 @@ const { MongoStore } = require("wwebjs-mongo");
 const { RemoteAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
 const mongoose = require("mongoose"); // Importar Mongoose para usar a conexão DB
+const path = require("path"); // <-- ADICIONADO: Necessário para construir caminhos
 
 // ===================================================================
 // ARMAZENAMENTO E CONFIGURAÇÃO GLOBAL
@@ -70,14 +71,20 @@ const getClientStatus = (clinicId) => {
  * Remove o cliente da memória, força o logout e destrói a instância.
  * @param {string} clinicId
  */
+// ===================================================================
+// CORREÇÃO 2: Tornar a função de logout mais robusta
+// ===================================================================
 const logoutAndRemoveClient = async (clinicId) => {
   const id = clinicId.toString();
   if (clients.has(id)) {
     const client = clients.get(id);
 
     try {
-      // Tenta forçar o logout
-      await client.logout();
+      // Tenta fazer logout apenas se o cliente estiver em um estado que permita isso
+      if (client.info) {
+        // client.info só existe se estiver 'ready'
+        await client.logout();
+      }
     } catch (error) {
       // Ignora erros de logout em sessões já corrompidas
       console.warn(
@@ -85,14 +92,29 @@ const logoutAndRemoveClient = async (clinicId) => {
       );
     }
 
-    // Destrói o cliente para liberar recursos do Puppeteer/Chromium
-    await client.destroy();
+    // Tenta destruir o cliente (fechar o puppeteer)
+    // A falha "Cannot read properties of null (reading 'close')" acontece aqui
+    // porque client.pupBrowser é null.
+    try {
+      if (client.pupBrowser) {
+        // <--- ADICIONA ESSA CHECAGEM
+        await client.destroy();
+      } else {
+        console.warn(
+          `[DESTROY] Cliente ${id}: Browser (pupBrowser) não encontrado, pulando destroy.`
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `[DESTROY] Cliente ${id}: Erro seguro ao tentar destruir. ${error.message}`
+      );
+    }
 
     clients.delete(id);
   }
   qrCodes.delete(id); // Limpa qualquer QR code pendente
   creatingQr.delete(id); // Limpa a flag de criação
-  console.log(`[CLIENT] Cliente ${id} removido e destruído.`);
+  console.log(`[CLIENT] Cliente ${id} removido e limpo da memória.`);
 };
 
 // ===================================================================
@@ -129,11 +151,19 @@ const initializeClient = async (clinicId) => {
   creatingQr.set(id, true);
   console.log(`[CLIENT] Marcando criação de QR code para ${id}`);
 
+  // ===================================================================
+  // CORREÇÃO 1: Definir um caminho gravável (/tmp) para o dataPath
+  // ===================================================================
+  // Define um caminho gravável no ambiente serverless
+  // Usamos um subdiretório específico para esta sessão para evitar conflitos
+  const dataPath = path.join("/tmp", ".wwebjs_auth", `session-${id}`);
+
   // --- Estratégia de Autenticação (RemoteAuth com MongoStore) ---
   const authStrategy = new RemoteAuth({
     store: mongoStore,
     clientId: id,
     backupSyncIntervalMs: 300000,
+    dataPath: dataPath, // <--- ADICIONADO: Informa ao RemoteAuth onde salvar cache local
   });
 
   // 4. Cria o novo cliente
@@ -141,6 +171,7 @@ const initializeClient = async (clinicId) => {
     authStrategy: authStrategy,
     puppeteer: {
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      dataPath: dataPath, // <--- ADICIONADO: Informa ao Puppeteer onde salvar seus dados
     },
     webVersionCache: {
       type: "remote",
@@ -174,7 +205,6 @@ const initializeClient = async (clinicId) => {
   client.on("auth_failure", (msg) => {
     console.error(`[AUTH_FAILURE] Cliente ${id}:`, msg);
     creatingQr.delete(id); // Remove flag de criação em caso de falha
-    // MUDANÇA CRÍTICA: REMOVIDA CHAMADA PARA logoutAndRemoveClient. O CONTROLLER DECIDE.
   });
 
   client.on("disconnected", (reason) => {
