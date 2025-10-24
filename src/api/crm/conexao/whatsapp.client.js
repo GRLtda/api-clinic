@@ -1,7 +1,7 @@
 // src/api/crm/conexao/whatsapp.client.js
 
 // Importações do whatsapp-web.js
-const { Client } = require("whatsapp-web.js"); // Usará o puppeteer-core
+const { Client } = require("whatsapp-web.js");
 const { MongoStore } = require("wwebjs-mongo");
 const { RemoteAuth } = require("whatsapp-web.js");
 
@@ -10,6 +10,7 @@ const qrcode = require("qrcode");
 const mongoose = require("mongoose");
 const path = require("path");
 const os = require("os");
+const fs = require("fs"); // <--- ADICIONADO: Módulo File System
 
 // ===================================================================
 // DETECÇÃO DE AMBIENTE
@@ -19,7 +20,6 @@ const IS_SERVERLESS = process.env.VERCEL === "1";
 let chromium;
 if (IS_SERVERLESS) {
   try {
-    // Tenta carregar o NOVO pacote serverless
     chromium = require("@sparticuz/chromium");
   } catch (e) {
     console.error("Falha ao carregar @sparticuz/chromium", e);
@@ -126,21 +126,36 @@ const initializeClient = async (clinicId) => {
   // CONFIGURAÇÃO CONDICIONAL (Local vs Serverless)
   // ===================================================================
 
-  // Usa o diretório temporário padrão do sistema operacional
   const dataPath = path.join(os.tmpdir(), ".wwebjs_auth", `session-${id}`);
   console.log(`[CLIENT] Usando dataPath: ${dataPath}`);
+
+  // ===================================================================
+  // CORREÇÃO CRÍTICA: Garantir que o dataPath exista
+  // ===================================================================
+  if (!fs.existsSync(dataPath)) {
+    try {
+      // Cria o diretório recursivamente (cria /.wwebjs_auth/ E /session-id/)
+      fs.mkdirSync(dataPath, { recursive: true });
+      console.log(`[CLIENT] Diretório dataPath criado: ${dataPath}`);
+    } catch (err) {
+      console.error(`[CLIENT] Falha ao criar dataPath: ${err.message}`);
+      // Propaga o erro para parar a inicialização
+      throw new Error(`Falha ao criar diretório de sessão: ${err.message}`);
+    }
+  }
+  // ===================================================================
 
   const authStrategy = new RemoteAuth({
     store: mongoStore,
     clientId: id,
     backupSyncIntervalMs: 300000,
-    dataPath: dataPath,
+    dataPath: dataPath, // Agora este diretório existe
   });
 
   // Configurações do Puppeteer
   let puppeteerConfig = {
-    headless: 'new', // <-- MUDANÇA: 'new' é o novo padrão para headless
-    dataPath: dataPath,
+    headless: "new",
+    dataPath: dataPath, // Passa o mesmo path para o puppeteer
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -154,36 +169,28 @@ const initializeClient = async (clinicId) => {
   };
 
   if (IS_SERVERLESS) {
-    // Configuração SERVERLESS (usando @sparticuz/chromium)
+    // Configuração SERVERLESS
     console.log("[CLIENT] Detectado ambiente Serverless. Usando @sparticuz/chromium.");
-    if (!chromium || !(await chromium.executablePath())) { // <-- MUDANÇA: Checagem mais robusta
+    if (!chromium || !(await chromium.executablePath())) {
       throw new Error(
         "Ambiente serverless detectado, mas @sparticuz/chromium falhou ao carregar."
       );
     }
 
     puppeteerConfig.executablePath = await chromium.executablePath();
-    puppeteerConfig.args = [
-      ...chromium.args,
-      ...puppeteerConfig.args,
-    ];
+    puppeteerConfig.args = [...chromium.args, ...puppeteerConfig.args];
     puppeteerConfig.defaultViewport = chromium.defaultViewport;
-    
   } else {
     // Configuração LOCAL
     console.log(
       "[CLIENT] Detectado ambiente Local. Usando puppeteer-core/chrome local."
     );
-    // puppeteer-core tentará encontrar uma instalação local do Chrome.
   }
 
   const client = new Client({
     authStrategy: authStrategy,
     puppeteer: puppeteerConfig,
-    // webVersionCache removido
   });
-
-  // ===================================================================
 
   // (Listeners permanecem os mesmos)
   client.on("qr", async (qr) => {
