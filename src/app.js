@@ -1,8 +1,8 @@
-// src/app.js (Modificado)
 const express = require('express');
 const cors = require('cors');
 
 // Importa as rotas
+const { notFound, errorHandler } = require('./middlewares/error.middleware');
 const patientRoutes = require('./api/patients/patients.routes');
 const authRoutes = require('./api/auth/auth.routes'); 
 const clinicRoutes = require('./api/clinics/clinics.routes');
@@ -13,8 +13,8 @@ const anamnesisResponseRoutes = require('./api/anamnesis/anamnesis-response.rout
 // --- IMPORTS DO CRM ---
 const crmRoutes = require('./api/crm/conexao/crm.routes'); 
 const messageTemplateRoutes = require('./api/crm/modelos/message-template.routes');
-const messageSettingsRoutes = require('./api/crm/message-settings.routes'); // <-- NOVO IMPORT
-const messageLogRoutes = require('./api/crm/logs/message-log.routes'); // <-- NOVO IMPORT
+const messageSettingsRoutes = require('./api/crm/message-settings.routes');
+const messageLogRoutes = require('./api/crm/logs/message-log.routes');
 
 const app = express();
 
@@ -26,6 +26,11 @@ app.get('/', (req, res) => {
   res.send('API do Sistema de Clínicas no ar!');
 });
 
+app.get("/debug-sentry", function mainHandler(req, res) {
+  throw new Error("My first Sentry error!");
+});
+
+
 // Rotas da API
 app.use('/api/auth', authRoutes);
 app.use('/api/clinics', clinicRoutes); 
@@ -36,9 +41,12 @@ app.use('/api', anamnesisResponseRoutes);
 app.use('/api/uploads', uploadRoutes);
 
 // Rotas de CRM
-app.use('/api/crm', crmRoutes); // Rotas de Conexão WhatsApp
-app.use('/api/crm/templates', messageTemplateRoutes); // Rotas de Modelos
-app.use('/api/crm/settings', messageSettingsRoutes); // <-- NOVA ROTA PARA CONFIGURAÇÕES
-app.use('/api/crm/logs', messageLogRoutes); // <-- NOVA ROTA PARA LOGS
+app.use('/api/crm', crmRoutes);
+app.use('/api/crm/templates', messageTemplateRoutes);
+app.use('/api/crm/settings', messageSettingsRoutes);
+app.use('/api/crm/logs', messageLogRoutes);
+
+app.use(notFound);
+app.use(errorHandler);
 
 module.exports = app;
