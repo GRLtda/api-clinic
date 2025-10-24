@@ -1,15 +1,13 @@
 // src/api/crm/conexao/whatsapp.client.js
 
-// Importações do whatsapp-web.js
+// Importações (fs, os, path, mongoose, qrcode, etc.)
 const { Client } = require("whatsapp-web.js");
 const { MongoStore } = require("wwebjs-mongo");
 const { RemoteAuth } = require("whatsapp-web.js");
-
-// Importações de infra
 const qrcode = require("qrcode");
 const mongoose = require("mongoose");
 const path = require("path");
-const os = require("os"); // Já estava aqui, agora é usado para o chdir
+const os = require("os");
 const fs = require("fs");
 
 // ===================================================================
@@ -122,11 +120,6 @@ const initializeClient = async (clinicId) => {
   creatingQr.set(id, true);
   console.log(`[CLIENT] Marcando criação de QR code para ${id}`);
 
-  // ===================================================================
-  // CORREÇÃO CRÍTICA 2: Mudar o diretório de trabalho para /tmp
-  // ===================================================================
-  // Isso força TODOS os arquivos relativos (como o .zip) a serem escritos
-  // no único diretório gravável do ambiente serverless.
   if (IS_SERVERLESS) {
     try {
       process.chdir(os.tmpdir());
@@ -136,13 +129,10 @@ const initializeClient = async (clinicId) => {
       throw new Error(`Falha ao alterar diretório: ${err.message}`);
     }
   }
-  // ===================================================================
 
-  // Configuração do dataPath (Continua necessária para o Puppeteer)
   const dataPath = path.join(os.tmpdir(), ".wwebjs_auth", `session-${id}`);
   console.log(`[CLIENT] Usando dataPath: ${dataPath}`);
 
-  // (Correção anterior: Garantir que o dataPath exista)
   if (!fs.existsSync(dataPath)) {
     try {
       fs.mkdirSync(dataPath, { recursive: true });
@@ -164,15 +154,14 @@ const initializeClient = async (clinicId) => {
   let puppeteerConfig = {
     headless: "new",
     dataPath: dataPath,
+    // ===================================================================
+    // MUDANÇA ESTÁ AQUI
+    // ===================================================================
     args: [
+      // Argumentos padrão para AMBOS os ambientes
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process",
-      "--disable-gpu",
     ],
   };
 
@@ -184,16 +173,28 @@ const initializeClient = async (clinicId) => {
         "Ambiente serverless detectado, mas @sparticuz/chromium falhou ao carregar."
       );
     }
-
+    
+    // Substitui os args pelos do chromium (que já contêm --no-sandbox, etc.)
+    puppeteerConfig.args = chromium.args; 
     puppeteerConfig.executablePath = await chromium.executablePath();
-    puppeteerConfig.args = [...chromium.args, ...puppeteerConfig.args];
     puppeteerConfig.defaultViewport = chromium.defaultViewport;
+
   } else {
     // Configuração LOCAL
     console.log(
       "[CLIENT] Detectado ambiente Local. Usando puppeteer-core/chrome local."
     );
+    // Adiciona args específicos para otimização local (opcional)
+     puppeteerConfig.args.push(
+       "--disable-accelerated-2d-canvas",
+       "--no-first-run",
+       "--no-zygote",
+       "--disable-gpu"
+     );
   }
+  // ===================================================================
+  // FIM DA MUDANÇA
+  // ===================================================================
 
   const client = new Client({
     authStrategy: authStrategy,
