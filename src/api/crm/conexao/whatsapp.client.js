@@ -281,7 +281,7 @@ const sendMessage = async (clinicId, number, message) => {
       `[${id}] Falha ao enviar mensagem para ${number}:`,
       error.message
     );
-    throw new Error(`Falha ao enviar mensagem: ${error.message}`);
+    throw new Error(`Falha em enviar mensagem: ${error.message}`);
   }
 };
 
