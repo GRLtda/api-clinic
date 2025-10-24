@@ -152,13 +152,8 @@ const initializeClient = async (clinicId) => {
 
   // Configurações do Puppeteer
   let puppeteerConfig = {
-    headless: "new",
     dataPath: dataPath,
-    // ===================================================================
-    // MUDANÇA ESTÁ AQUI
-    // ===================================================================
     args: [
-      // Argumentos padrão para AMBOS os ambientes
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
@@ -168,40 +163,51 @@ const initializeClient = async (clinicId) => {
   if (IS_SERVERLESS) {
     // Configuração SERVERLESS
     console.log("[CLIENT] Detectado ambiente Serverless. Usando @sparticuz/chromium.");
-    if (!chromium || !(await chromium.executablePath())) {
+    if (!chromium) {
       throw new Error(
         "Ambiente serverless detectado, mas @sparticuz/chromium falhou ao carregar."
       );
     }
     
-    // Substitui os args pelos do chromium (que já contêm --no-sandbox, etc.)
-    puppeteerConfig.args = chromium.args; 
-    puppeteerConfig.executablePath = await chromium.executablePath();
+    // ===================================================================
+    // ADICIONAMOS LOGS DE DEBUG AQUI
+    // ===================================================================
+    console.log("[CLIENT] 1/4: Buscando executablePath...");
+    const execPath = await chromium.executablePath();
+    if (!execPath) {
+       throw new Error("Falha ao obter executablePath do Chromium.");
+    }
+    console.log(`[CLIENT] 2/4: Path encontrado.`); // Não logar o path, é muito longo
+
+    puppeteerConfig.executablePath = execPath;
+    puppeteerConfig.args = chromium.args;
     puppeteerConfig.defaultViewport = chromium.defaultViewport;
+    puppeteerConfig.headless = chromium.headless; // Garante que estamos usando o 'new' do chromium
 
   } else {
     // Configuração LOCAL
     console.log(
       "[CLIENT] Detectado ambiente Local. Usando puppeteer-core/chrome local."
     );
-    // Adiciona args específicos para otimização local (opcional)
-     puppeteerConfig.args.push(
+    puppeteerConfig.headless = 'new'; // Padrão local
+    puppeteerConfig.args.push(
        "--disable-accelerated-2d-canvas",
        "--no-first-run",
        "--no-zygote",
        "--disable-gpu"
      );
   }
-  // ===================================================================
-  // FIM DA MUDANÇA
-  // ===================================================================
+  
+  console.log("[CLIENT] 3/4: Configuração do Puppeteer finalizada. Criando Client...");
 
   const client = new Client({
     authStrategy: authStrategy,
     puppeteer: puppeteerConfig,
   });
+  
+  console.log("[CLIENT] 4/4: Client criado. Adicionando listeners...");
 
-  // (Listeners permanecem os mesmos)
+  // (Listeners)
   client.on("qr", async (qr) => {
     console.log(`[QR_CODE] recebido para ${id}`);
     const qrDataUrl = await qrcode.toDataURL(qr);
@@ -218,11 +224,6 @@ const initializeClient = async (clinicId) => {
     creatingQr.delete(id);
   });
 
-  client.on("authenticated", () => {
-    console.log(`[AUTH] Sessão ${id} restaurada do MongoDB.`);
-    creatingQr.delete(id);
-  });
-
   client.on("auth_failure", (msg) => {
     console.error(`[AUTH_FAILURE] Cliente ${id}:`, msg);
     creatingQr.delete(id);
@@ -234,7 +235,18 @@ const initializeClient = async (clinicId) => {
     creatingQr.delete(id);
   });
 
-  // (Inicialização permanece a mesma)
+  // Adicionando um listener de "carregando"
+  client.on('loading_screen', (percent, message) => {
+    console.log(`[CLIENT_LOADING] ${percent}% ${message}`);
+  });
+
+  client.on('error', (err) => {
+    console.error(`[CLIENT_ERROR] Erro na instância do cliente:`, err);
+  });
+
+  console.log("[CLIENT] 5/5: Listeners adicionados. Chamando client.initialize()...");
+
+  // (Inicialização)
   client.initialize().catch((err) => {
     console.error(`[ERROR] ERRO ao inicializar o cliente ${id}:`, err);
     creatingQr.delete(id);

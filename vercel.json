@@ -11,5 +11,14 @@
       "src": "/(.*)",
       "dest": "src/server.js"
     }
-  ]
+  ],
+  "functions": {
+    "src/server.js": {
+      "maxDuration": 60,
+      "includeFiles": "node_modules/@sparticuz/chromium/bin/**",
+      "external": [
+        "@sparticuz/chromium"
+      ]
+    }
+  }
 }
