@@ -126,7 +126,7 @@ const trySendMessageAndLog = async ({
 // ===================================================================
 
 const runClientWarmUp = async () => {
-    console.log('[WARMUP] Iniciando aquecimento de conexões (3 min antes)...');
+    // console.log('[WARMUP] Iniciando aquecimento de conexões (3 min antes)...');
     
     const now = new Date();
     // Verifica agendamentos entre 3 e 4 minutos à frente.
@@ -143,7 +143,7 @@ const runClientWarmUp = async () => {
     }).distinct('clinic'); 
 
     if (appointments.length === 0) {
-        console.log('[WARMUP] Nenhuma clínica com agendamento próximo.');
+        // console.log('[WARMUP] Nenhuma clínica com agendamento próximo.');
         return;
     }
 
@@ -152,7 +152,7 @@ const runClientWarmUp = async () => {
             // Tenta iniciar/restaurar o cliente para esta clínica
             const client = await initializeClient(clinicId);
             const status = client.qrCode === null ? 'conectado' : client.qrCode ? 'aguardando QR' : 'iniciando';
-            console.log(`[WARMUP] Cliente para ${clinicId} acionado. Status atual: ${status}.`);
+            // console.log(`[WARMUP] Cliente para ${clinicId} acionado. Status atual: ${status}.`);
         } catch (error) {
             // Se falhar na inicialização, captura no Sentry, mas não interrompe o scheduler
             captureException(error, {
@@ -167,7 +167,7 @@ const runClientWarmUp = async () => {
         }
     }
 
-    console.log('[WARMUP] Finalizado aquecimento de conexões.');
+    // console.log('[WARMUP] Finalizado aquecimento de conexões.');
 };
 
 // ===================================================================
@@ -175,7 +175,7 @@ const runClientWarmUp = async () => {
 // ===================================================================
 
 const checkAndSendAppointmentReminders = async (type, daysOffset) => {
-  console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
+  // console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
 
   const activeSettings = await MessageSetting.find({
     type: type,
@@ -192,7 +192,7 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
     });
 
   if (activeSettings.length === 0) {
-    console.log(`[SCHEDULER] Nenhuma clínica com ${type} ativo.`); 
+    // console.log(`[SCHEDULER] Nenhuma clínica com ${type} ativo.`); 
     return;
   }
 
@@ -257,7 +257,7 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
       });
     }
   }
-  console.log(`[SCHEDULER] Finalizado verificação de ${type}.`);
+  // console.log(`[SCHEDULER] Finalizado verificação de ${type}.`);
 };
 
 // ===================================================================
@@ -266,7 +266,7 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
 
 const checkAndSendBirthdayWishes = async () => {
     const type = "PATIENT_BIRTHDAY";
-    console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
+    // console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
 
     const activeSettings = await MessageSetting.find({
         type: type,
@@ -334,7 +334,7 @@ const checkAndSendBirthdayWishes = async () => {
             });
         }
     }
-    console.log(`[SCHEDULER] Finalizado verificação de ${type}.`);
+    // console.log(`[SCHEDULER] Finalizado verificação de ${type}.`);
 };
 
 
