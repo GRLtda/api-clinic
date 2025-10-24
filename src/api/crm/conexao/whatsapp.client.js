@@ -9,8 +9,8 @@ const { RemoteAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
 const mongoose = require("mongoose");
 const path = require("path");
-const os = require("os");
-const fs = require("fs"); // <--- ADICIONADO: Módulo File System
+const os = require("os"); // Já estava aqui, agora é usado para o chdir
+const fs = require("fs");
 
 // ===================================================================
 // DETECÇÃO DE AMBIENTE
@@ -123,39 +123,47 @@ const initializeClient = async (clinicId) => {
   console.log(`[CLIENT] Marcando criação de QR code para ${id}`);
 
   // ===================================================================
-  // CONFIGURAÇÃO CONDICIONAL (Local vs Serverless)
+  // CORREÇÃO CRÍTICA 2: Mudar o diretório de trabalho para /tmp
+  // ===================================================================
+  // Isso força TODOS os arquivos relativos (como o .zip) a serem escritos
+  // no único diretório gravável do ambiente serverless.
+  if (IS_SERVERLESS) {
+    try {
+      process.chdir(os.tmpdir());
+      console.log(`[CLIENT] Diretório de trabalho alterado para: ${os.tmpdir()}`);
+    } catch (err) {
+      console.error(`[CLIENT] Falha ao alterar diretório: ${err.message}`);
+      throw new Error(`Falha ao alterar diretório: ${err.message}`);
+    }
+  }
   // ===================================================================
 
+  // Configuração do dataPath (Continua necessária para o Puppeteer)
   const dataPath = path.join(os.tmpdir(), ".wwebjs_auth", `session-${id}`);
   console.log(`[CLIENT] Usando dataPath: ${dataPath}`);
 
-  // ===================================================================
-  // CORREÇÃO CRÍTICA: Garantir que o dataPath exista
-  // ===================================================================
+  // (Correção anterior: Garantir que o dataPath exista)
   if (!fs.existsSync(dataPath)) {
     try {
-      // Cria o diretório recursivamente (cria /.wwebjs_auth/ E /session-id/)
       fs.mkdirSync(dataPath, { recursive: true });
       console.log(`[CLIENT] Diretório dataPath criado: ${dataPath}`);
     } catch (err) {
       console.error(`[CLIENT] Falha ao criar dataPath: ${err.message}`);
-      // Propaga o erro para parar a inicialização
       throw new Error(`Falha ao criar diretório de sessão: ${err.message}`);
     }
   }
-  // ===================================================================
 
   const authStrategy = new RemoteAuth({
     store: mongoStore,
     clientId: id,
     backupSyncIntervalMs: 300000,
-    dataPath: dataPath, // Agora este diretório existe
+    dataPath: dataPath,
   });
 
   // Configurações do Puppeteer
   let puppeteerConfig = {
     headless: "new",
-    dataPath: dataPath, // Passa o mesmo path para o puppeteer
+    dataPath: dataPath,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
