@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@sentry/node": "^10.22.0",
+    "@sparticuz/chrome-aws-lambda": "github:sparticuz/chrome-aws-lambda",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.7.0",
