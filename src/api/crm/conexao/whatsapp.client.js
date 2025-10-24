@@ -63,9 +63,10 @@ const initializeClient = async (clinicId) => {
   
   // --- Estratégia de Autenticação (RemoteAuth com MongoStore) ---
   const authStrategy = new RemoteAuth({ 
-      store: mongoStore, 
-      clientId: id 
-  }); 
+    store: mongoStore, 
+    clientId: id,
+    backupSyncIntervalMs: 300000, // 5 minutos = 300.000ms. Mínimo é 60000ms.
+});
 
   // 3. Cria um novo cliente
   const client = new Client({
