@@ -5,25 +5,36 @@ const { Client } = require("whatsapp-web.js");
 const { MongoStore } = require("wwebjs-mongo");
 const { RemoteAuth } = require("whatsapp-web.js");
 
-// Importações de infra Serverless
+// Importações de infra
 const qrcode = require("qrcode");
 const mongoose = require("mongoose");
 const path = require("path");
-// ===================================================================
-// CORREÇÃO 3: Importar o pacote do Chromium Serverless
-// ===================================================================
-const chromium = require("@sparticuz/chrome-aws-lambda");
-// ===================================================================
 
 // ===================================================================
 // ARMAZENAMENTO E CONFIGURAÇÃO GLOBAL
 // ===================================================================
 
-// (O resto desta seção permanece o mesmo)
 const clients = new Map();
 const qrCodes = new Map();
 const creatingQr = new Map();
 let mongoStore;
+
+// ===================================================================
+// DETECÇÃO DE AMBIENTE
+// ===================================================================
+// Checa se estamos rodando em um ambiente serverless conhecido (como Vercel)
+// Você pode adicionar outros, como process.env.LAMBDA_TASK_ROOT
+const IS_SERVERLESS = process.env.VERCEL === "1";
+
+let chromium;
+if (IS_SERVERLESS) {
+  try {
+    // Tenta carregar o pacote serverless APENAS se estivermos no serverless
+    chromium = require("@sparticuz/chrome-aws-lambda");
+  } catch (e) {
+    console.error("Falha ao carregar @sparticuz/chrome-aws-lambda", e);
+  }
+}
 
 // (initializeMongoStore permanece o mesmo)
 const initializeMongoStore = () => {
@@ -59,36 +70,29 @@ const getClientStatus = (clinicId) => {
   return "disconnected";
 };
 
-// (logoutAndRemoveClient permanece o mesmo, com a CORREÇÃO 2 anterior)
+// (logoutAndRemoveClient permanece o mesmo)
 const logoutAndRemoveClient = async (clinicId) => {
   const id = clinicId.toString();
   if (clients.has(id)) {
     const client = clients.get(id);
-
     try {
-      if (client.info) {
-        await client.logout();
-      }
+      if (client.info) await client.logout();
     } catch (error) {
       console.warn(
         `[LOGOUT] Cliente ${id}: Erro seguro ao tentar logout. ${error.message}`
       );
     }
-
     try {
-      if (client.pupBrowser) {
-        await client.destroy();
-      } else {
+      if (client.pupBrowser) await client.destroy();
+      else
         console.warn(
           `[DESTROY] Cliente ${id}: Browser (pupBrowser) não encontrado, pulando destroy.`
         );
-      }
     } catch (error) {
       console.warn(
         `[DESTROY] Cliente ${id}: Erro seguro ao tentar destruir. ${error.message}`
       );
     }
-
     clients.delete(id);
   }
   qrCodes.delete(id);
@@ -120,8 +124,19 @@ const initializeClient = async (clinicId) => {
   creatingQr.set(id, true);
   console.log(`[CLIENT] Marcando criação de QR code para ${id}`);
 
-  // (CORREÇÃO 1 anterior permanece)
-  const dataPath = path.join("/tmp", ".wwebjs_auth", `session-${id}`);
+  // ===================================================================
+  // CONFIGURAÇÃO CONDICIONAL (Local vs Serverless)
+  // ===================================================================
+
+  // Define o caminho de cache.
+  // path.join garante que vai usar /tmp (Linux) ou \AppData\Local\Temp (Windows)
+  const dataPath = path.join(
+    require("os").tmpdir(), // <-- Pega o diretório temporário CORRETO
+    ".wwebjs_auth",
+    `session-${id}`
+  );
+
+  console.log(`[CLIENT] Usando dataPath: ${dataPath}`);
 
   const authStrategy = new RemoteAuth({
     store: mongoStore,
@@ -130,24 +145,58 @@ const initializeClient = async (clinicId) => {
     dataPath: dataPath,
   });
 
-  // ===================================================================
-  // CORREÇÃO 3: Configurar o Puppeteer para usar o binário do serverless
-  // ===================================================================
+  // Configurações do Puppeteer
+  let puppeteerConfig = {
+    headless: true, // Sempre headless
+    dataPath: dataPath,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process", // <- Pode ajudar em ambientes com poucos recursos
+      "--disable-gpu",
+    ],
+  };
+
+  if (IS_SERVERLESS) {
+    // Configuração SERVERLESS (usando @sparticuz/chrome-aws-lambda)
+    console.log("[CLIENT] Detectado ambiente Serverless. Usando Chromium AWS.");
+    if (!chromium || !chromium.executablePath) {
+      throw new Error(
+        "Ambiente serverless detectado, mas @sparticuz/chrome-aws-lambda falhou ao carregar."
+      );
+    }
+    puppeteerConfig.executablePath = await chromium.executablePath();
+    puppeteerConfig.args = [
+      ...chromium.args,
+      ...puppeteerConfig.args, // Adiciona nossos args extras
+    ];
+    puppeteerConfig.defaultViewport = chromium.defaultViewport;
+    puppeteerConfig.headless = chromium.headless;
+  } else {
+    // Configuração LOCAL (Windows/Mac/Linux com Chrome instalado)
+    console.log(
+      "[CLIENT] Detectado ambiente Local. Usando puppeteer/chrome local."
+    );
+    // Para rodar localmente, você pode precisar do 'puppeteer'
+    // Se o 'whatsapp-web.js' não o baixou, rode: npm install puppeteer
+    // Se você tem o Google Chrome instalado, pode tentar adicionar:
+    // puppeteerConfig.executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  }
+
   const client = new Client({
     authStrategy: authStrategy,
-    puppeteer: {
-      args: chromium.args, // <-- ADICIONADO: Argumentos específicos para o serverless
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(), // <-- ADICIONADO: Caminho para o binário do Chrome
-      headless: chromium.headless, // <-- ADICIONADO: Garante que rode headless
-      dataPath: dataPath, // (CORREÇÃO 1 anterior)
-    },
+    puppeteer: puppeteerConfig,
     webVersionCache: {
       type: "remote",
       remotePath:
         "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html",
     },
   });
+
   // ===================================================================
 
   // (Listeners permanecem os mesmos)
@@ -198,7 +247,6 @@ const initializeClient = async (clinicId) => {
 // FUNÇÃO DE ENVIO DE MENSAGEM
 // ===================================================================
 // (sendMessage permanece o mesmo)
-
 const sendMessage = async (clinicId, number, message) => {
   const id = clinicId.toString();
   const client = clients.get(id);
