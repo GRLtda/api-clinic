@@ -3,7 +3,11 @@
   "builds": [
     {
       "src": "src/server.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "external": ["@sparticuz/chromium"],
+        "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
+      }
     }
   ],
   "routes": [
@@ -14,11 +18,7 @@
   ],
   "functions": {
     "src/server.js": {
-      "maxDuration": 60,
-      "includeFiles": "node_modules/@sparticuz/chromium/bin/**",
-      "external": [
-        "@sparticuz/chromium"
-      ]
+      "maxDuration": 60
     }
   }
 }
