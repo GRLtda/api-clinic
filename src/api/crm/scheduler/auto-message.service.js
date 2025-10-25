@@ -4,34 +4,26 @@ const MessageSetting = require("../message-settings.model");
 const MessageTemplate = require("../modelos/message-template.model");
 const Appointment = require("../../appointments/appointments.model");
 const Patient = require("../../patients/patients.model");
-const { initializeClient, sendMessage } = require("../conexao/whatsapp.client");
+// Importa o cliente HTTP para comunicar com o serviço WhatsApp dedicado
+const whatsappServiceClient = require('../../../services/whatsappServiceClient');
 const { createLogEntry } = require("../logs/message-log.controller");
-const {
-  MessageLog,
-  LOG_STATUS,
-  ACTION_TYPES,
-} = require("../logs/message-log.model");
-const { captureException } = require('../../../utils/sentry'); // NOVO IMPORT SENTRY
+const { MessageLog, LOG_STATUS, ACTION_TYPES } = require("../logs/message-log.model");
+const { captureException } = require('../../../utils/sentry');
 
 // ===================================================================
-// UTILS DE FORMATAÇÃO E PREENCHIMENTO
+// UTILS DE FORMATAÇÃO E PREENCHIMENTO (Podem permanecer aqui ou ir para um utils compartilhado)
 // ===================================================================
 
 const fillTemplate = (templateContent, data) => {
-  let content = templateContent;
-
-  content = content.replace(/{ paciente }/g, data.patientName || "Paciente");
-  content = content.replace(/{paciente}/g, data.patientName || "Paciente");
-  
-  content = content.replace(/{ clinica }/g, data.clinicName || "Clínica");
-  content = content.replace(/{ nome_medico }/g, data.doctorName || "Dr(a).");
-
-  content = content.replace(/{ data_consulta }/g, data.appointmentDate || "");
-  content = content.replace(/{ hora_consulta }/g, data.appointmentTime || "");
-
-  content = content.replace(/{ link_anamnese }/g, data.anamnesisLink || "");
-
-  return content.trim();
+    let content = templateContent;
+    content = content.replace(/{ paciente }/g, data.patientName || "Paciente");
+    content = content.replace(/{paciente}/g, data.patientName || "Paciente");
+    content = content.replace(/{ clinica }/g, data.clinicName || "Clínica");
+    content = content.replace(/{ nome_medico }/g, data.doctorName || "Dr(a).");
+    content = content.replace(/{ data_consulta }/g, data.appointmentDate || "");
+    content = content.replace(/{ hora_consulta }/g, data.appointmentTime || "");
+    content = content.replace(/{ link_anamnese }/g, data.anamnesisLink || ""); // Adicionar lógica se aplicável
+    return content.trim();
 };
 
 const formatDate = (date) => {
@@ -41,14 +33,11 @@ const formatDate = (date) => {
 
 const formatTime = (date) => {
   if (!date) return "";
-  return new Date(date).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return new Date(date).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 };
 
 // ===================================================================
-// FUNÇÃO CENTRAL DE ENVIO (COM LÓGICA DE CONEXÃO E LOG)
+// FUNÇÃO CENTRAL DE ENVIO (COM LOG LOCAL E CHAMADA AO SERVIÇO)
 // ===================================================================
 
 const trySendMessageAndLog = async ({
@@ -56,150 +45,103 @@ const trySendMessageAndLog = async ({
   patientId,
   recipientPhone,
   finalMessage,
-  settingType,
+  settingType, // Ex: 'APPOINTMENT_1_DAY_BEFORE', 'PATIENT_BIRTHDAY'
   templateId,
 }) => {
-  const formattedPhone = recipientPhone;
+  const formattedPhone = recipientPhone; // Assume que o número já está formatado corretamente
 
-  let logEntry = await createLogEntry({
-    clinic: clinicId,
-    patient: patientId,
-    template: templateId,
-    settingType: settingType,
-    messageContent: finalMessage,
-    recipientPhone: formattedPhone,
-    status: LOG_STATUS.SENT_ATTEMPT,
-    actionType:
-      settingType === "PATIENT_BIRTHDAY"
-        ? ACTION_TYPES.AUTOMATIC_BIRTHDAY
-        : ACTION_TYPES.AUTOMATIC_REMINDER,
-  });
-
+  let logEntry;
   try {
-    const client = await initializeClient(clinicId);
-
-    if (client.qrCode) {
-      throw new Error(
-        `Cliente WhatsApp da clínica ${clinicId} não está conectado (Aguardando QR Code).`
-      );
-    }
-
-    const result = await sendMessage(clinicId, formattedPhone, finalMessage);
-
-    await MessageLog.findByIdAndUpdate(logEntry._id, {
-      status: LOG_STATUS.DELIVERED,
-      wwebjsMessageId: result.id.id,
+    // 1. Cria o log local com status SENT_ATTEMPT
+    logEntry = await createLogEntry({
+      clinic: clinicId,
+      patient: patientId,
+      template: templateId,
+      settingType: settingType,
+      messageContent: finalMessage,
+      recipientPhone: formattedPhone,
+      status: LOG_STATUS.SENT_ATTEMPT,
+      actionType:
+        settingType === "PATIENT_BIRTHDAY"
+          ? ACTION_TYPES.AUTOMATIC_BIRTHDAY
+          : ACTION_TYPES.AUTOMATIC_REMINDER, // Ajustar se houver mais tipos automáticos
     });
 
-    console.log(
-      `[${settingType}] Mensagem enviada para ${formattedPhone}. Log ID: ${logEntry._id}`
-    );
+    if (!logEntry) {
+        throw new Error("Falha ao criar entrada de log inicial.");
+    }
+
+    // 2. Chama o serviço WhatsApp dedicado para realizar o envio
+    // console.log(`[SCHEDULER ${clinicId}] Solicitando envio para ${formattedPhone} via serviço...`);
+    const response = await whatsappServiceClient.sendMessage(clinicId, formattedPhone, finalMessage);
+    // console.log(`[SCHEDULER ${clinicId}] Resposta do serviço para ${formattedPhone}:`, response.status);
+
+    // 3. Atualiza o log local para DELIVERED (ou outro status apropriado se o serviço retornar)
+    await MessageLog.findByIdAndUpdate(logEntry._id, {
+      status: LOG_STATUS.DELIVERED, // Assumimos sucesso se não houve erro na chamada
+      wwebjsMessageId: response.data?.result?.id?.id || null, // Captura ID da mensagem se retornado
+    });
+
+    console.log(`[SCHEDULER ${settingType}] Mensagem enviada para ${formattedPhone} via serviço. Log ID: ${logEntry._id}`);
+
   } catch (error) {
-    
-    // LOG SENTRY: Captura o erro automático
+    // 4. Em caso de erro na comunicação ou erro retornado pelo serviço:
     captureException(error, {
         tags: {
             severity: 'whatsapp_automatic_failure',
             clinic_id: clinicId.toString(),
             setting_type: settingType,
+            context: 'autoMessageServiceSend'
         },
         extra: {
             patient_id: patientId.toString(),
             phone: recipientPhone,
-            message_preview: finalMessage.substring(0, 50),
+            log_id: logEntry?._id?.toString() || 'N/A',
+            error_message: error.response?.data?.message || error.message
         }
     });
 
-    // Atualiza o log no DB
-    await MessageLog.findByIdAndUpdate(logEntry._id, {
-      status: LOG_STATUS.ERROR_WHATSAPP,
-      errorMessage: error.message,
-    });
-    console.error(
-      `[${settingType}] ERRO ao enviar mensagem para ${formattedPhone}: ${error.message}`
-    );
+    // Atualiza o log no DB para indicar o erro
+    if (logEntry) {
+      await MessageLog.findByIdAndUpdate(logEntry._id, {
+        status: LOG_STATUS.ERROR_SYSTEM, // Indica erro na API ou comunicação
+        errorMessage: `Erro via serviço: ${error.response?.data?.message || error.message}`,
+      });
+    }
+    console.error(`[SCHEDULER ${settingType}] ERRO ao solicitar envio para ${formattedPhone} via serviço: ${error.response?.data?.message || error.message}`);
   }
 };
 
 // ===================================================================
-// LÓGICA DE AQUECIMENTO DA CONEXÃO (WARM-UP)
-// ===================================================================
-
-const runClientWarmUp = async () => {
-    // console.log('[WARMUP] Iniciando aquecimento de conexões (3 min antes)...');
-    
-    const now = new Date();
-    // Verifica agendamentos entre 3 e 4 minutos à frente.
-    const targetStart = new Date(now.getTime() + 3 * 60 * 1000); 
-    const targetEnd = new Date(now.getTime() + 4 * 60 * 1000);
-    
-    // Busca IDs únicos das clínicas que têm agendamentos em 3-4 minutos
-    const appointments = await Appointment.find({
-        startTime: {
-            $gte: targetStart,
-            $lte: targetEnd,
-        },
-        status: { $in: ["Agendado", "Confirmado"] },
-    }).distinct('clinic'); 
-
-    if (appointments.length === 0) {
-        // console.log('[WARMUP] Nenhuma clínica com agendamento próximo.');
-        return;
-    }
-
-    for (const clinicId of appointments) {
-        try {
-            // Tenta iniciar/restaurar o cliente para esta clínica
-            const client = await initializeClient(clinicId);
-            const status = client.qrCode === null ? 'conectado' : client.qrCode ? 'aguardando QR' : 'iniciando';
-            // console.log(`[WARMUP] Cliente para ${clinicId} acionado. Status atual: ${status}.`);
-        } catch (error) {
-            // Se falhar na inicialização, captura no Sentry, mas não interrompe o scheduler
-            captureException(error, {
-                tags: {
-                    severity: 'whatsapp_warmup_failure',
-                    clinic_id: clinicId.toString(),
-                },
-                extra: {
-                    error_detail: 'Falha ao iniciar cliente para warm-up'
-                }
-            });
-        }
-    }
-
-    // console.log('[WARMUP] Finalizado aquecimento de conexões.');
-};
-
-// ===================================================================
-// LÓGICA DE LEMBRETES DE CONSULTA
+// LÓGICA DE LEMBRETES DE CONSULTA (Busca dados e chama trySendMessageAndLog)
 // ===================================================================
 
 const checkAndSendAppointmentReminders = async (type, daysOffset) => {
   // console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
 
-  const activeSettings = await MessageSetting.find({
-    type: type,
-    isActive: true,
-  })
+  const activeSettings = await MessageSetting.find({ type: type, isActive: true })
     .populate("template")
     .populate({
       path: "clinic",
-      select: "name owner",
-      populate: {
-        path: "owner",
-        select: "name",
-      },
+      select: "name owner", // Seleciona apenas campos necessários
+      populate: { path: "owner", select: "name" }, // Popula nome do dono (médico?)
     });
 
   if (activeSettings.length === 0) {
-    // console.log(`[SCHEDULER] Nenhuma clínica com ${type} ativo.`); 
+    // console.log(`[SCHEDULER] Nenhuma configuração ativa para ${type}.`);
     return;
   }
 
   for (const setting of activeSettings) {
+    // Verifica se os dados populados existem antes de prosseguir
+    if (!setting.template || !setting.clinic || !setting.clinic.owner) {
+        console.warn(`[SCHEDULER ${type}] Configuração ${setting._id} com dados incompletos (template, clinica ou owner). Pulando.`);
+        continue;
+    }
+
     const clinicId = setting.clinic._id;
     const clinicName = setting.clinic.name;
-    const doctorName = setting.clinic.owner.name;
+    const doctorName = setting.clinic.owner.name; // Assumindo que owner é o médico principal
     const templateContent = setting.template.content;
     const templateId = setting.template._id;
 
@@ -207,50 +149,50 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
     let targetStart = new Date(now);
     let targetEnd = new Date(now);
 
-    // --- DEFINIÇÃO DA JANELA DE BUSCA ---
+    // Definição da janela de busca (sem alterações)
     if (daysOffset > 0) {
-      // Gatilhos de 1 ou 2 dias antes (Diário)
       targetStart.setDate(now.getDate() + daysOffset);
       targetEnd.setDate(targetStart.getDate());
       targetStart.setHours(0, 0, 0, 0);
       targetEnd.setHours(23, 59, 59, 999);
     } else if (type === 'APPOINTMENT_1_MIN_BEFORE') {
-        // Gatilho de 1 minuto antes (Envio)
-        targetStart = new Date(now.getTime() + 1 * 60 * 1000); 
-        targetEnd = new Date(now.getTime() + 2 * 60 * 1000); 
+        targetStart = new Date(now.getTime() + 1 * 60 * 1000);
+        targetEnd = new Date(now.getTime() + 2 * 60 * 1000);
+    } else {
+        console.warn(`[SCHEDULER ${type}] Tipo de offset não tratado para ${clinicId}. Pulando.`);
+        continue; // Pula se o tipo não for esperado
     }
-    
-    // Evita o processamento de agendamentos que já passaram
+
     if (targetEnd <= now) {
-         console.log(`[${type}] Aviso: Janela de busca para ${clinicId} está no passado. Pulando.`);
+         console.log(`[SCHEDULER ${type}] Janela de busca para ${clinicId} está no passado. Pulando.`);
          continue;
     }
 
-    // Busca agendamentos relevantes
     const appointments = await Appointment.find({
       clinic: clinicId,
-      startTime: {
-        $gte: targetStart,
-        $lte: targetEnd,
-      },
+      startTime: { $gte: targetStart, $lte: targetEnd },
       status: { $in: ["Agendado", "Confirmado"] },
-    }).populate("patient", "name phone");
+    }).populate("patient", "name phone"); // Busca nome e telefone do paciente
 
     for (const appointment of appointments) {
-      const patientData = appointment.patient;
+        if (!appointment.patient || !appointment.patient.phone) {
+            console.warn(`[SCHEDULER ${type}] Agendamento ${appointment._id} sem paciente ou telefone. Pulando.`);
+            continue;
+        }
 
       const finalMessage = fillTemplate(templateContent, {
-        patientName: patientData.name,
+        patientName: appointment.patient.name,
         clinicName: clinicName,
         doctorName: doctorName,
         appointmentDate: formatDate(appointment.startTime),
         appointmentTime: formatTime(appointment.startTime),
       });
 
+      // Chama a função refatorada que usa o serviço dedicado
       await trySendMessageAndLog({
         clinicId: clinicId,
-        patientId: patientData._id,
-        recipientPhone: patientData.phone,
+        patientId: appointment.patient._id,
+        recipientPhone: appointment.patient.phone, // Número já vem do populate
         finalMessage: finalMessage,
         settingType: type,
         templateId: templateId,
@@ -261,17 +203,14 @@ const checkAndSendAppointmentReminders = async (type, daysOffset) => {
 };
 
 // ===================================================================
-// LÓGICA DE ANIVERSÁRIO
+// LÓGICA DE ANIVERSÁRIO (Busca dados e chama trySendMessageAndLog)
 // ===================================================================
 
 const checkAndSendBirthdayWishes = async () => {
     const type = "PATIENT_BIRTHDAY";
     // console.log(`[SCHEDULER] Iniciando verificação de ${type}...`);
 
-    const activeSettings = await MessageSetting.find({
-        type: type,
-        isActive: true,
-    })
+    const activeSettings = await MessageSetting.find({ type: type, isActive: true })
         .populate("template")
         .populate({
             path: "clinic",
@@ -282,6 +221,11 @@ const checkAndSendBirthdayWishes = async () => {
     if (activeSettings.length === 0) return;
 
     for (const setting of activeSettings) {
+         if (!setting.template || !setting.clinic || !setting.clinic.owner) {
+             console.warn(`[SCHEDULER ${type}] Configuração ${setting._id} com dados incompletos. Pulando.`);
+             continue;
+         }
+
         const clinicId = setting.clinic._id;
         const clinicName = setting.clinic.name;
         const doctorName = setting.clinic.owner.name;
@@ -290,9 +234,10 @@ const checkAndSendBirthdayWishes = async () => {
 
         const today = new Date();
         const todayDay = today.getDate();
-        const todayMonth = today.getMonth() + 1;
-        const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+        const todayMonth = today.getMonth() + 1; // Mês é 0-indexado
+        const startOfDay = new Date(today.setHours(0, 0, 0, 0)); // Início do dia para verificar envio
 
+        // Busca pacientes da clínica que fazem aniversário hoje
         const birthdayPatients = await Patient.find({
             clinicId: clinicId,
             $expr: {
@@ -301,20 +246,28 @@ const checkAndSendBirthdayWishes = async () => {
                     { $eq: [{ $month: "$birthDate" }, todayMonth] },
                 ],
             },
-        });
+            deletedAt: { $exists: false } // Ignora pacientes deletados
+        }).select("name phone"); // Seleciona apenas campos necessários
 
         for (const patientData of birthdayPatients) {
+            if (!patientData.phone) {
+                 console.warn(`[SCHEDULER ${type}] Paciente ${patientData._id} (${patientData.name}) sem telefone. Pulando.`);
+                 continue;
+            }
 
-            const alreadySent = await MessageLog.findOne({
+            // Verifica se já foi enviada uma mensagem de aniversário HOJE para este paciente
+            const alreadySentToday = await MessageLog.exists({
                 clinic: clinicId,
                 patient: patientData._id,
                 settingType: type,
+                actionType: ACTION_TYPES.AUTOMATIC_BIRTHDAY, // Especifica o tipo de ação
+                // Verifica se foi enviado com sucesso ou tentativa hoje
                 status: { $in: [LOG_STATUS.SENT_ATTEMPT, LOG_STATUS.DELIVERED, LOG_STATUS.READ] },
-                createdAt: { $gte: startOfDay }
+                createdAt: { $gte: startOfDay } // Verifica apenas logs criados hoje
             });
 
-            if (alreadySent) {
-                console.log(`[${type}] Mensagem para ${patientData.name} (${patientData.phone}) já foi enviada hoje. Pulando.`);
+            if (alreadySentToday) {
+                // console.log(`[SCHEDULER ${type}] Mensagem para ${patientData.name} (${patientData.phone}) já enviada hoje. Pulando.`);
                 continue;
             }
 
@@ -324,6 +277,7 @@ const checkAndSendBirthdayWishes = async () => {
                 doctorName: doctorName,
             });
 
+            // Chama a função refatorada
             await trySendMessageAndLog({
                 clinicId: clinicId,
                 patientId: patientData._id,
@@ -337,27 +291,29 @@ const checkAndSendBirthdayWishes = async () => {
     // console.log(`[SCHEDULER] Finalizado verificação de ${type}.`);
 };
 
-
 // ===================================================================
-// INICIALIZAÇÃO DO CRON
+// INICIALIZAÇÃO DO CRON (Sem warm-up, apenas agendamentos)
 // ===================================================================
 
 exports.startAutoMessageScheduler = () => {
-  // CRON JOB 1: A CADA MINUTO
+  console.log("--- Iniciando Agendador de Mensagens Automáticas (sem warm-up local)... ---");
+
+  // CRON JOB 1: A CADA MINUTO (para lembretes de X minutos antes)
+  // Ajuste o tipo conforme definido no seu MessageSetting model
   cron.schedule("*/1 * * * *", () => {
-    // 1. WARM-UP: Tenta aquecer a conexão 3 minutos antes (Não depende de configuração no DB)
-    runClientWarmUp(); 
-    
-    // 2. ENVIO: Roda apenas para clínicas com o gatilho ativo no DB.
-    checkAndSendAppointmentReminders("APPOINTMENT_1_MIN_BEFORE", 0);
+    checkAndSendAppointmentReminders("APPOINTMENT_1_MIN_BEFORE", 0); // Exemplo
+    // Adicionar outros lembretes de minutos aqui se necessário
   });
 
-  // CRON JOB 2: DIÁRIO
+  // CRON JOB 2: DIÁRIO (Ex: 1h da manhã)
   cron.schedule("0 1 * * *", () => {
+    console.log("[SCHEDULER DIÁRIO] Iniciando tarefas diárias (aniversários, lembretes de dias)...");
     checkAndSendAppointmentReminders("APPOINTMENT_2_DAYS_BEFORE", 2);
     checkAndSendAppointmentReminders("APPOINTMENT_1_DAY_BEFORE", 1);
     checkAndSendBirthdayWishes();
+    console.log("[SCHEDULER DIÁRIO] Tarefas diárias concluídas.");
   });
 
   console.log("--- Agendador de Mensagens Automáticas Iniciado. ---");
+  // Log inicial para confirmar que foi chamado
 };

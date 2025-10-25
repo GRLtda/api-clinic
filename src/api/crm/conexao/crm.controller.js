@@ -1,34 +1,23 @@
-// src/api/crm/crm.controller.js
-
+// src/api/crm/conexao/crm.controller.js
 const expressAsyncHandler = require("express-async-handler");
-const { captureException } = require("../../../utils/sentry");
-const Patient = require("../../../api/patients/patients.model");
-const Clinic = require("../../../api/clinics/clinics.model");
-const MessageTemplate = require("../modelos/message-template.model");
-const Appointment = require("../../../api/appointments/appointments.model");
+// Importa o cliente HTTP para comunicar com o serviço WhatsApp dedicado
+const whatsappServiceClient = require('../../../services/whatsappServiceClient');
+// Mantém imports necessários para lógica que permanece na API Principal (logs, dados, templates)
 const { createLogEntry } = require("../logs/message-log.controller");
-const {
-  MessageLog,
-  LOG_STATUS,
-  ACTION_TYPES,
-} = require("../logs/message-log.model");
-const {
-  initializeClient,
-  sendMessage,
-  logoutAndRemoveClient,
-  clients,
-  qrCodes,
-  getClientStatus, // <--- CORREÇÃO: Função adicionada ao bloco de importação
-} = require("./whatsapp.client");
+const { MessageLog, LOG_STATUS, ACTION_TYPES } = require("../logs/message-log.model");
+const Patient = require("../../patients/patients.model");
+const MessageTemplate = require("../modelos/message-template.model");
+const Clinic = require("../../clinics/clinics.model");
+const Appointment = require("../../appointments/appointments.model");
+const { captureException } = require("../../../utils/sentry");
 
 // ===================================================================
-// UTILS DE FORMATAÇÃO (Mínimo Necessário)
+// UTILS DE FORMATAÇÃO E BUSCA DE DADOS (Permanecem na API Principal)
 // ===================================================================
 
+// Função para preencher variáveis no template
 const fillTemplate = (templateContent, data) => {
   let content = templateContent;
-
-  // CORREÇÃO: Substitui com e sem espaços
   content = content.replace(/{ paciente }/g, data.patientName || "Paciente");
   content = content.replace(/{paciente}/g, data.patientName || "Paciente");
   content = content.replace(/{ clinica }/g, data.clinicName || "Clínica");
@@ -36,38 +25,29 @@ const fillTemplate = (templateContent, data) => {
   content = content.replace(/{ data_consulta }/g, data.appointmentDate || "");
   content = content.replace(/{ hora_consulta }/g, data.appointmentTime || "");
   content = content.replace(/{ link_anamnese }/g, data.anamnesisLink || "");
-
   return content.trim();
 };
 
+// Função para formatar data
 const formatDate = (date) => {
   if (!date) return "";
   return new Date(date).toLocaleDateString("pt-BR");
 };
 
+// Função para formatar hora
 const formatTime = (date) => {
   if (!date) return "";
-  return new Date(date).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return new Date(date).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 };
 
-// ===================================================================
-// HELPER: Busca dados necessários para o preenchimento do template
-// ===================================================================
-
+// Função para buscar dados necessários para preencher o template
 const getTemplateData = async (clinicId, patientId) => {
   const patient = await Patient.findById(patientId);
   if (!patient) throw new Error("Paciente não encontrado.");
 
-  const clinic = await Clinic.findById(clinicId).populate(
-    "owner",
-    "name email"
-  );
+  const clinic = await Clinic.findById(clinicId).populate("owner", "name email");
   if (!clinic) throw new Error("Clínica não encontrada.");
 
-  // Busca agendamento futuro mais próximo
   const nextAppointment = await Appointment.findOne({
     patient: patientId,
     clinic: clinicId,
@@ -84,228 +64,69 @@ const getTemplateData = async (clinicId, patientId) => {
 };
 
 // ===================================================================
-// ROTAS DE GERENCIAMENTO DE CONEXÃO
+// ROTAS DE GERENCIAMENTO (Delegadas ao Serviço WhatsApp)
 // ===================================================================
 
 /**
- * @desc    Rota para gerar o QR Code, forçando reset se necessário.
+ * @desc    Rota para obter o QR Code (via serviço dedicado).
  * @route   GET /api/crm/qrcode
  * @access  Private (Requer clínica)
  */
 exports.generateQRCode = expressAsyncHandler(async (req, res) => {
   const clinicId = req.clinicId;
-  const id = clinicId.toString();
-
-  const currentStatus = getClientStatus(clinicId);
-
-  // 1. Cliente CONECTADO (Ready)
-  if (currentStatus === "connected") {
-    return res.status(200).json({
-      status: "connected",
-      message: "WhatsApp já está conectado.",
-    });
+  try {
+    const response = await whatsappServiceClient.getQRCode(clinicId);
+    res.status(response.status).json(response.data);
+  } catch (error) {
+    captureException(error, { tags: { context: 'getQRCodeService' } });
+    const status = error.response?.status || 500;
+    const data = error.response?.data || { message: 'Erro ao comunicar com o serviço WhatsApp para obter QR code.' };
+    res.status(status).json(data);
   }
-
-  // 2. Se o QR CODE JÁ EXISTE na memória (mesmo se o cliente estiver initializing/pending), retorna imediatamente.
-  if (qrCodes.has(id)) {
-    const qr = qrCodes.get(id);
-
-    return res.status(200).json({
-      status: "qrcode",
-      message: "Leia o QR Code para conectar.",
-      qrCode: qr,
-    });
-  }
-
-  // 3. Se o cliente está desconectado OU em initializing sem QR (preso), força um RESET COMPLETO.
-  if (currentStatus === "disconnected" || currentStatus === "initializing") {
-    console.log(
-      `[QR-ROUTE] Cliente ${id} em ${currentStatus} sem QR. Forçando RESET e REINICIALIZAÇÃO.`
-    );
-    await logoutAndRemoveClient(clinicId);
-    await initializeClient(clinicId);
-  }
-
-  // 4. Inicialização em progresso (QR code está a caminho, mas ainda não foi emitido)
-  return res.status(202).json({
-    status: "creating_qr",
-    message: "Criando QR Code. Aguarde alguns segundos...",
-  });
 });
 
 /**
- * @desc    Rota para obter o status da conexão WhatsApp.
+ * @desc    Rota para obter o status da conexão WhatsApp (via serviço dedicado).
  * @route   GET /api/crm/status
  * @access  Private (Requer clínica)
  */
 exports.getConnectionStatus = expressAsyncHandler(async (req, res) => {
   const clinicId = req.clinicId;
-
-  const status = getClientStatus(clinicId); // <--- getClientStatus agora está definido
-
-  // Mapeia o status do servidor para mensagens amigáveis do frontend
-  let message;
-  switch (status) {
-    case "connected":
-      message = "WhatsApp conectado.";
-      break;
-    case "qrcode_pending":
-      message = "QR Code gerado. Aguardando leitura.";
-      break;
-    case "creating_qr":
-      message = "Criando QR Code. Aguarde alguns segundos...";
-      break;
-    case "initializing":
-      message = "Conexão em progresso.";
-      break;
-    case "disconnected":
-    default:
-      message = "WhatsApp desconectado. Gere um novo QR code para conectar.";
-      break;
+  try {
+    const response = await whatsappServiceClient.getStatus(clinicId);
+    res.status(response.status).json(response.data);
+  } catch (error) {
+    captureException(error, { tags: { context: 'getStatusService' } });
+    const status = error.response?.status || 500;
+    const data = error.response?.data || { message: 'Erro ao comunicar com o serviço WhatsApp para obter status.' };
+    res.status(status).json(data);
   }
-
-  // Retorna o status atual
-  return res.status(200).json({
-    status: status,
-    message: message,
-    action:
-      status === "disconnected" || status === "qrcode_pending"
-        ? "/api/crm/qrcode"
-        : null,
-  });
 });
 
 /**
- * @desc    Rota para desconectar o WhatsApp.
+ * @desc    Rota para desconectar o WhatsApp (via serviço dedicado).
  * @route   POST /api/crm/logout
  * @access  Private (Requer clínica)
  */
 exports.logoutClient = expressAsyncHandler(async (req, res) => {
   const clinicId = req.clinicId;
-
-  if (getClientStatus(clinicId) === "disconnected") {
-    return res.status(404).json({
-      status: "disconnected",
-      message: "O cliente já estava desconectado.",
-    });
-  }
-
-  await logoutAndRemoveClient(clinicId);
-
-  res.status(200).json({
-    status: "success",
-    message: "Cliente WhatsApp desconectado com sucesso.",
-  });
-});
-
-// ===================================================================
-// ROTA DE TESTE E ENVIO MANUAL
-// ===================================================================
-
-/**
- * @desc    Rota de Teste: Preenche o template e envia a mensagem para o próprio paciente
- * @route   POST /api/crm/send-test
- * @access  Private (Requer clínica)
- */
-exports.sendTestMessage = expressAsyncHandler(async (req, res) => {
-  const clinicId = req.clinicId;
-  const { patientId, templateId } = req.body;
-
-  if (!patientId || !templateId) {
-    res.status(400);
-    throw new Error("ID do paciente e ID do template são obrigatórios.");
-  }
-
-  const template = await MessageTemplate.findOne({
-    _id: templateId,
-    clinic: clinicId,
-  });
-  if (!template) {
-    res.status(404);
-    throw new Error("Template não encontrado nesta clínica.");
-  }
-
-  let logEntry;
-  let data;
-
   try {
-    // 1. Busca Dados Dinâmicos
-    data = await getTemplateData(clinicId, patientId);
-
-    // 2. Prepara a mensagem
-    const finalMessage = fillTemplate(template.content, {
-      patientName: data.patient.name,
-      clinicName: data.clinic.name,
-      doctorName: data.doctor.name,
-      appointmentDate: data.nextAppointment
-        ? formatDate(data.nextAppointment.startTime)
-        : "N/A (Nenhum agendamento futuro)",
-      appointmentTime: data.nextAppointment
-        ? formatTime(data.nextAppointment.startTime)
-        : "N/A",
-    });
-
-    // 3. Cria o log de tentativa
-    logEntry = await createLogEntry({
-      clinic: clinicId,
-      patient: patientId,
-      template: templateId,
-      settingType: "MANUAL_TEST",
-      messageContent: `[TESTE] ${finalMessage}`,
-      recipientPhone: data.patient.phone,
-      status: LOG_STATUS.SENT_ATTEMPT,
-      actionType: ACTION_TYPES.MANUAL_SEND,
-    });
-
-    // 4. Envia a mensagem
-    await initializeClient(clinicId);
-    const result = await sendMessage(
-      clinicId,
-      data.patient.phone,
-      `[TESTE] ${finalMessage}`
-    );
-
-    // 5. Atualiza o log de sucesso
-    await MessageLog.findByIdAndUpdate(logEntry._id, {
-      status: LOG_STATUS.DELIVERED,
-      wwebjsMessageId: result.id.id,
-    });
-
-    res.status(200).json({
-      message: "Mensagem de teste enviada com sucesso.",
-      logId: logEntry._id,
-    });
+    const response = await whatsappServiceClient.logout(clinicId);
+    res.status(response.status).json(response.data);
   } catch (error) {
-    // LOG SENTRY: Captura o erro específico do Teste Manual
-    captureException(error, {
-      tags: {
-        severity: "manual_whatsapp_test_failure",
-        clinic_id: clinicId.toString(),
-        template_id: templateId,
-      },
-      extra: {
-        patient_id: patientId,
-        phone: data ? data.patient.phone : "N/A",
-        error_source: "Manual Test Route",
-      },
-    });
-
-    // 6. Atualiza o log de erro no DB
-    if (logEntry) {
-      await MessageLog.findByIdAndUpdate(logEntry._id, {
-        status: LOG_STATUS.ERROR_WHATSAPP,
-        errorMessage: error.message,
-      });
-    }
-
-    // 7. Retorna o erro ao cliente
-    res.status(400);
-    throw new Error(`Erro ao enviar mensagem de teste: ${error.message}`);
+    captureException(error, { tags: { context: 'logoutService' } });
+    const status = error.response?.status || 500;
+    const data = error.response?.data || { message: 'Erro ao comunicar com o serviço WhatsApp para desconectar.' };
+    res.status(status).json(data);
   }
 });
 
+// ===================================================================
+// ROTAS DE ENVIO (Delegadas ao Serviço WhatsApp, com lógica de log local)
+// ===================================================================
+
 /**
- * @desc    Envia uma mensagem de texto (funcionalidade CRM)
+ * @desc    Envia uma mensagem de texto (funcionalidade CRM) via serviço dedicado
  * @route   POST /api/crm/send-message
  * @access  Private (Requer clínica)
  */
@@ -314,24 +135,18 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
   const clinicId = req.clinicId;
 
   if (!number || !message || !patientId) {
-    res.status(400);
-    throw new Error("Número, paciente e mensagem são obrigatórios.");
+    return res.status(400).json({ message: "Número, paciente e mensagem são obrigatórios." });
+  }
+
+  // Validação de segurança
+  const patientExistsInClinic = await Patient.exists({ _id: patientId, clinicId: clinicId });
+  if (!patientExistsInClinic) {
+    return res.status(404).json({ message: "Paciente não encontrado nesta clínica." });
   }
 
   let logEntry;
-
-  // Verificação de segurança: checa se o paciente pertence à clínica
-  const patientExistsInClinic = await Patient.findOne({
-    _id: patientId,
-    clinicId: clinicId,
-  });
-  if (!patientExistsInClinic) {
-    res.status(404);
-    throw new Error("Paciente não encontrado nesta clínica.");
-  }
-
   try {
-    // 1. Criar um log de tentativa de envio (SENT_ATTEMPT)
+    // 1. Criar log de tentativa
     logEntry = await createLogEntry({
       clinic: clinicId,
       patient: patientId,
@@ -343,40 +158,116 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
       actionType: ACTION_TYPES.MANUAL_SEND,
     });
 
-    // 2. Tentar enviar a mensagem pelo WhatsApp
-    await initializeClient(clinicId);
-    const result = await sendMessage(clinicId, number, message);
+    // 2. Chamar o serviço WhatsApp para enviar
+    const response = await whatsappServiceClient.sendMessage(clinicId, number, message);
 
-    // 3. Atualizar o log com o sucesso
+    // 3. Atualizar o log com sucesso
     await MessageLog.findByIdAndUpdate(logEntry._id, {
-      status: LOG_STATUS.DELIVERED,
-      wwebjsMessageId: result.id.id,
+      status: LOG_STATUS.DELIVERED, // Ou status baseado na resposta do serviço
+      wwebjsMessageId: response.data?.result?.id?.id || null,
     });
 
-    res.status(200).json({ message: "Mensagem enviada com sucesso.", result });
+    res.status(200).json({ message: "Solicitação de envio enviada com sucesso.", serviceResponse: response.data });
+
   } catch (error) {
-    // LOG SENTRY: Captura o erro específico de envio manual
     captureException(error, {
-      tags: {
-        severity: "manual_whatsapp_send_failure",
-        clinic_id: clinicId.toString(),
-      },
-      extra: {
-        patient_id: patientId,
-        phone: number,
-        error_source: "Manual Send Route",
-      },
+      tags: { severity: "manual_whatsapp_send_failure", clinic_id: clinicId.toString(), context: 'sendMessageService' },
+      extra: { patient_id: patientId, phone: number },
     });
 
-    // 4. Atualizar o log com o erro
+    // 4. Atualizar o log com erro
     if (logEntry) {
       await MessageLog.findByIdAndUpdate(logEntry._id, {
-        status: LOG_STATUS.ERROR_WHATSAPP,
-        errorMessage: error.message,
+        status: LOG_STATUS.ERROR_SYSTEM,
+        errorMessage: error.response?.data?.message || error.message,
       });
     }
 
-    res.status(400);
-    throw new Error(error.message); // Retorna a mensagem de erro original
+    const status = error.response?.status || 500;
+    const data = error.response?.data || { message: 'Erro ao solicitar envio de mensagem ao serviço WhatsApp.' };
+    res.status(status).json(data);
+  }
+});
+
+/**
+ * @desc    Rota de Teste: Preenche o template e envia via serviço dedicado
+ * @route   POST /api/crm/send-test
+ * @access  Private (Requer clínica)
+ */
+exports.sendTestMessage = expressAsyncHandler(async (req, res) => {
+  const clinicId = req.clinicId;
+  const { patientId, templateId } = req.body;
+
+  if (!patientId || !templateId) {
+    return res.status(400).json({ message: "ID do paciente e ID do template são obrigatórios." });
+  }
+
+  const template = await MessageTemplate.findOne({ _id: templateId, clinic: clinicId });
+  if (!template) {
+    return res.status(404).json({ message: "Template não encontrado nesta clínica." });
+  }
+
+  let logEntry;
+  let data;
+
+  try {
+    // 1. Busca Dados Dinâmicos
+    data = await getTemplateData(clinicId, patientId);
+
+    // 2. Prepara a mensagem
+    const finalMessage = fillTemplate(template.content, {
+        patientName: data.patient.name,
+        clinicName: data.clinic.name,
+        doctorName: data.doctor.name,
+        appointmentDate: data.nextAppointment ? formatDate(data.nextAppointment.startTime) : "N/A",
+        appointmentTime: data.nextAppointment ? formatTime(data.nextAppointment.startTime) : "N/A",
+        anamnesisLink: "" // Adicionar lógica se aplicável
+    });
+    const testMessageContent = `[TESTE] ${finalMessage}`;
+
+    // 3. Cria o log de tentativa
+    logEntry = await createLogEntry({
+      clinic: clinicId,
+      patient: patientId,
+      template: templateId,
+      settingType: "MANUAL_TEST",
+      messageContent: testMessageContent,
+      recipientPhone: data.patient.phone,
+      status: LOG_STATUS.SENT_ATTEMPT,
+      actionType: ACTION_TYPES.MANUAL_SEND,
+    });
+
+    // 4. Envia a mensagem via serviço dedicado
+    const response = await whatsappServiceClient.sendMessage(clinicId, data.patient.phone, testMessageContent);
+
+    // 5. Atualiza o log de sucesso
+    await MessageLog.findByIdAndUpdate(logEntry._id, {
+      status: LOG_STATUS.DELIVERED,
+      wwebjsMessageId: response.data?.result?.id?.id || null,
+    });
+
+    res.status(200).json({
+      message: "Mensagem de teste enviada com sucesso.",
+      logId: logEntry._id,
+      serviceResponse: response.data,
+    });
+
+  } catch (error) {
+    captureException(error, {
+      tags: { severity: "manual_whatsapp_test_failure", clinic_id: clinicId.toString(), context: 'sendTestMessageService' },
+      extra: { patient_id: patientId, phone: data?.patient?.phone || 'N/A' },
+    });
+
+    // 6. Atualiza o log de erro
+    if (logEntry) {
+      await MessageLog.findByIdAndUpdate(logEntry._id, {
+        status: LOG_STATUS.ERROR_SYSTEM,
+        errorMessage: error.response?.data?.message || error.message,
+      });
+    }
+
+    const status = error.response?.status || 500;
+    const data = error.response?.data || { message: 'Erro ao enviar mensagem de teste via serviço WhatsApp.' };
+    res.status(status).json(data);
   }
 });
