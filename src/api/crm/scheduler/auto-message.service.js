@@ -53,3 +53,30 @@ const runTaskInWorker = (taskName) => {
         }
     });
 };
+// ===================================================================
+// INICIALIZAÇÃO DO CRON (Apenas chama a função Worker)
+// ===================================================================
+exports.startAutoMessageScheduler = () => {
+
+    console.log("--- Iniciando Agendador de Mensagens Automáticas (em Worker Threads)... ---");
+
+    // CRON JOB 1: A CADA MINUTO (Verifica lembretes de 1 minuto)
+    cron.schedule("*/1 * * * *", () => {
+      runTaskInWorker("APPOINTMENT_1_MIN_BEFORE");
+    });
+
+    // CRON JOB 2: DIÁRIO (Verifica lembretes de 1 e 2 dias e aniversários)
+    // "0 1 * * *" = 1:00 AM UTC
+    cron.schedule("0 1 * * *", () => {
+      console.log("[CRON Diário] Iniciando tarefas diárias (aniversários, lembretes) no Worker...");
+      // Disparamos Workers independentes para maximizar o paralelismo
+      runTaskInWorker("APPOINTMENT_2_DAYS_BEFORE");
+      runTaskInWorker("APPOINTMENT_1_DAY_BEFORE");
+      runTaskInWorker("PATIENT_BIRTHDAY");
+
+    }, {
+        timezone: "UTC" // Especifica explicitamente que o horário é UTC
+    });
+
+    console.log("--- Agendador de Mensagens Automáticas Iniciado e Tarefas Agendadas. ---");
+};
