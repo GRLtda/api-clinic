@@ -2,7 +2,6 @@
 require('dotenv').config();
 const app = require('./app');
 const connectDB = require('./config/database');
-const { startAutoMessageScheduler } = require('./api/crm/scheduler/auto-message.service'); 
 const { Sentry } = require('./utils/sentry');
 
 const PORT = process.env.PORT || 3001;

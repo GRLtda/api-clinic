@@ -2,7 +2,7 @@
   "dependencies": {
     "@sentry/node": "^10.22.0",
     "@sparticuz/chromium": "^141.0.0",
-    "axios": "^1.12.2",
+    "axios": "^1.13.1",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.7.0",
     "cors": "^2.8.5",
