@@ -1,39 +1,54 @@
 // src/workers/scheduler-worker.js
 const { parentPort, workerData } = require('worker_threads');
-const mongoose = require('mongoose'); // Importa o mongoose
+const mongoose = require('mongoose');
+
+// --- VARIÁVEL GLOBAL PARA taskName ---
+// Definida aqui para garantir acesso em todos os escopos do worker
+const taskName = workerData?.taskName || 'UNKNOWN_TASK';
 
 // --- CONEXÃO COM O MONGODB DENTRO DO WORKER ---
 let dbConnected = false;
-const connectDB = async (uri, taskNameForLog) => { // Adiciona taskNameForLog para logs
+const connectDB = async (uri) => {
     if (dbConnected) return;
     try {
         await mongoose.connect(uri, {
             autoIndex: false,
             maxPoolSize: 5,
-            serverSelectionTimeoutMS: 10000,
-            socketTimeoutMS: 30000,
+            serverSelectionTimeoutMS: 15000, // Aumentado um pouco
+            socketTimeoutMS: 45000,      // Aumentado um pouco
         });
         dbConnected = true;
-        console.log(`[SCHEDULER WORKER ${taskNameForLog}] MongoDB Conectado.`);
+        console.log(`[SCHEDULER WORKER ${taskName}] MongoDB Conectado.`);
     } catch (err) {
-        console.error(`[SCHEDULER WORKER ${taskNameForLog}] Erro ao conectar MongoDB:`, err.message);
-        parentPort.postMessage({ status: 'error', taskName: taskNameForLog, error: `DB Connection Failed: ${err.message}` });
+        console.error(`[SCHEDULER WORKER ${taskName}] Erro ao conectar MongoDB:`, err.message);
+        if (parentPort) {
+            parentPort.postMessage({ status: 'error', taskName: taskName, error: `DB Connection Failed: ${err.message}` });
+        }
         process.exit(1);
     }
 };
 // --- FIM DA CONEXÃO ---
 
-// Importe os modelos *depois* do mongoose
+// --- ORDEM CORRIGIDA DOS REQUIRES ---
+// Modelos que são referenciados por outros devem vir primeiro
+const Patient = require('../api/patients/patients.model');
+const Clinic = require('../api/clinics/clinics.model'); // Necessário para populate
+const User = require('../api/users/users.model');       // Necessário para populate
+const MessageTemplate = require('../api/crm/modelos/message-template.model'); // <-- **REGISTRA MessageTemplate PRIMEIRO**
+
+// Agora os modelos que usam 'ref' para os anteriores
 const MessageSetting = require('../api/crm/message-settings.model');
 const Appointment = require('../api/appointments/appointments.model');
-const Patient = require('../api/patients/patients.model');
-const whatsappServiceClient = require('../services/whatsappServiceClient');
-const { createLogEntry } = require('../api/crm/logs/message-log.controller');
 const { MessageLog, LOG_STATUS, ACTION_TYPES } = require('../api/crm/logs/message-log.model');
+// --- FIM DA ORDEM CORRIGIDA ---
+
+// Outras dependências
+const whatsappServiceClient = require('../services/whatsappServiceClient');
+const { createLogEntry } = require('../api/crm/logs/message-log.controller'); // Assumindo que esta função não depende diretamente de um modelo não registrado
 const { captureException } = require('../utils/sentry');
 const { DateTime } = require('luxon');
 const axios = require('axios');
-const { sendToDiscord } = require('../utils/discordLogger');
+const { sendToDiscord } = require('../utils/discordLogger'); // Importa o logger do Discord
 
 let pLimit;
 (async () => {
@@ -41,20 +56,25 @@ let pLimit;
         const module = await import('p-limit');
         pLimit = module.default;
     } catch (err) {
-        captureException(err, { tags: { severity: 'critical', context: 'p-limit-worker-load' } });
-        console.error(`[SCHEDULER WORKER ${workerData?.taskName || 'UNKNOWN'}] Falha crítica ao carregar p-limit. Encerrando.`);
-        parentPort.postMessage({ status: 'error', taskName: workerData?.taskName || 'UNKNOWN', error: 'Failed to load p-limit' });
+        captureException(err, { tags: { severity: 'critical', context: 'p-limit-worker-load', workerTask: taskName } }); // Adiciona taskName
+        console.error(`[SCHEDULER WORKER ${taskName}] Falha crítica ao carregar p-limit. Encerrando.`);
+        if (parentPort) {
+            parentPort.postMessage({ status: 'error', taskName: taskName, error: 'Failed to load p-limit' });
+        }
         process.exit(1);
     }
 })().catch(err => {
-     captureException(err, { tags: { severity: 'critical', context: 'p-limit-iife-catch' } });
-     console.error(`[SCHEDULER WORKER ${workerData?.taskName || 'UNKNOWN'}] Falha crítica no setup inicial (p-limit IIFE). Encerrando.`);
-     parentPort.postMessage({ status: 'error', taskName: workerData?.taskName || 'UNKNOWN', error: 'Critical setup failure (p-limit)' });
+     captureException(err, { tags: { severity: 'critical', context: 'p-limit-iife-catch', workerTask: taskName } }); // Adiciona taskName
+     console.error(`[SCHEDULER WORKER ${taskName}] Falha crítica no setup inicial (p-limit IIFE). Encerrando.`);
+     if (parentPort) {
+         parentPort.postMessage({ status: 'error', taskName: taskName, error: 'Critical setup failure (p-limit)' });
+     }
      process.exit(1);
 });
 
 const BR_TZ = 'America/Sao_Paulo';
 
+// Funções utilitárias (fillTemplate, formatDate, formatTime) - sem alterações
 const fillTemplate = (templateContent, data) => {
     let content = templateContent || '';
     content = content.replace(/{ ?paciente ?}/g, data.patientName || "Paciente");
@@ -84,29 +104,12 @@ const formatTime = (date) => {
   });
 };
 
-const DISCORD_WEBHOOK_URL = workerData.discordWebhookUrl || 'https://discord.com/api/webhooks/1432810373244915732/OapA83WGKuWf1rlxbtQGFPkwD_H4K9mIxtO8BaIKrO1ZVyT5u5UNyKLVi_U0u0Ce41D1';
+const DISCORD_WEBHOOK_URL = workerData.discordWebhookUrl || process.env.DISCORD_WEBHOOK_URL || 'https://discord.com/api/webhooks/1432810373244915732/OapA83WGKuWf1rlxbtQGFPkwD_H4K9mIxtO8BaIKrO1ZVyT5u5UNyKLVi_U0u0Ce41D1'; // Tenta pegar do env também
 
-const sendDiscordNotificationInternal = (color, title, fields, footer) => {
-    if (!DISCORD_WEBHOOK_URL) return;
-    const taskName = workerData?.taskName || 'UNKNOWN'; // Pega taskName do workerData para logs
+// Usa a função sendToDiscord importada diretamente
+// Removida sendDiscordNotificationInternal para evitar duplicação
 
-    const payload = {
-        username: 'CRM Worker Bot',
-        embeds: [{
-            color: color,
-            title: title,
-            timestamp: new Date().toISOString(),
-            fields: fields,
-            footer: footer ? { text: footer } : undefined,
-        }]
-    };
-
-    axios.post(DISCORD_WEBHOOK_URL, payload)
-        .catch(err => {
-             console.error(`[SCHEDULER WORKER ${taskName}] Erro ao enviar notificação Discord:`, err.message);
-        });
-};
-
+// Função trySendMessageAndLog (usa a variável taskName global)
 const trySendMessageAndLog = async ({
     clinicId,
     patientId,
@@ -116,18 +119,15 @@ const trySendMessageAndLog = async ({
     templateId,
     clinicName,
 }) => {
-    const taskName = workerData?.taskName || 'UNKNOWN'; // Pega taskName do workerData
+    // taskName é acessível globalmente neste escopo
     if (!clinicId || !patientId || !recipientPhone || !finalMessage || !settingType) {
         console.warn(`[SCHEDULER WORKER ${taskName}] Dados insuficientes para enviar mensagem/log.`);
+        sendToDiscord(`Dados insuficientes para enviar ${settingType} para ${recipientPhone}`, 'warn', taskName);
         return;
     }
 
     const formattedPhone = recipientPhone.replace(/\D/g, '');
-
     let logEntry;
-    let notificationTitle;
-    let notificationColor;
-    let notificationFields = [];
 
     try {
         logEntry = await createLogEntry({
@@ -145,60 +145,66 @@ const trySendMessageAndLog = async ({
 
         if (!logEntry) throw new Error("Falha ao criar entrada de log inicial.");
 
+        // Log antes de chamar o serviço externo
+        console.log(`[SCHEDULER WORKER ${taskName}] Tentando enviar ${settingType} para ${formattedPhone} (Clínica: ${clinicName || clinicId})`);
+
         const response = await whatsappServiceClient.sendMessage(clinicId, formattedPhone, finalMessage);
 
         await MessageLog.findByIdAndUpdate(logEntry._id, {
-            status: LOG_STATUS.DELIVERED,
+            status: LOG_STATUS.DELIVERED, // Assumindo sucesso na entrega baseado na resposta do serviço
             wwebjsMessageId: response.data?.result?.id?.id || null,
         });
 
-        notificationTitle = `✅ Sucesso: Mensagem Automática Enviada (${settingType})`;
-        notificationColor = 3066993; // Verde
-        notificationFields = [
-            { name: 'Clínica', value: clinicName || clinicId.toString(), inline: true },
-            { name: 'Tipo', value: settingType, inline: true },
-            { name: 'Telefone', value: formattedPhone, inline: true },
-            { name: 'Log ID', value: logEntry._id.toString(), inline: false },
-        ];
+        // Notificação Discord de sucesso
+        sendToDiscord(
+            `Mensagem automática (${settingType}) enviada com sucesso para ${formattedPhone}`,
+            'success',
+            taskName,
+            `Clínica: ${clinicName || clinicId} | Log ID: ${logEntry._id}` // Adiciona detalhes no footer
+        );
+        console.log(`[SCHEDULER WORKER ${taskName}] Sucesso ao enviar ${settingType} para ${formattedPhone}. Log ID: ${logEntry._id}`);
 
-        sendDiscordNotificationInternal(notificationColor, notificationTitle, notificationFields, `Status: ${LOG_STATUS.DELIVERED}`);
 
     } catch (error) {
         const errorMessage = error.response?.data?.message || error.message || 'Erro desconhecido ao contatar serviço WhatsApp.';
+        const logIdForError = logEntry?._id?.toString() || 'N/A';
+
+        // Log detalhado no console do worker
+        console.error(`[SCHEDULER WORKER ${taskName}] Falha ao enviar ${settingType} para ${formattedPhone}. Erro: ${errorMessage}. Log ID: ${logIdForError}`);
+
+        // Captura no Sentry
         captureException(error, {
-            tags: { severity: 'whatsapp_automatic_failure', clinic_id: clinicId.toString(), setting_type: settingType, context: 'workerServiceSend', workerTask: taskName }, // Adiciona workerTask
-            extra: { patient_id: patientId.toString(), phone: recipientPhone, log_id: logEntry?._id?.toString() || 'N/A', error_details: error.response?.data || errorMessage }
+            tags: { severity: 'whatsapp_automatic_failure', clinic_id: clinicId.toString(), setting_type: settingType, context: 'workerServiceSend', workerTask: taskName },
+            extra: { patient_id: patientId.toString(), phone: recipientPhone, log_id: logIdForError, error_details: error.response?.data || errorMessage }
         });
 
+        // Atualiza o log no DB com erro
         if (logEntry) {
             await MessageLog.findByIdAndUpdate(logEntry._id, {
                 status: LOG_STATUS.ERROR_SYSTEM,
-                errorMessage: `Erro via serviço (Worker ${taskName}): ${errorMessage}`, // Adiciona workerTask na msg
+                errorMessage: `Erro via serviço (Worker ${taskName}): ${errorMessage.substring(0, 1000)}`, // Limita tamanho da msg de erro
             }).catch(logUpdateError => {
-                captureException(logUpdateError, { tags: { severity: 'worker_log_update_failure', workerTask: taskName } }); // Adiciona workerTask
-                console.error(`[SCHEDULER WORKER ${taskName}] Falha ao atualizar log de erro:`, logUpdateError.message);
+                captureException(logUpdateError, { tags: { severity: 'worker_log_update_failure', workerTask: taskName } });
+                console.error(`[SCHEDULER WORKER ${taskName}] Falha ao atualizar log de erro ${logIdForError}:`, logUpdateError.message);
             });
         }
 
-        const logId = logEntry?._id?.toString() || 'N/A';
-        notificationTitle = `❌ ERRO: Falha no Envio Automático (${settingType})`;
-        notificationColor = 15158332; // Vermelho
-        notificationFields = [
-            { name: 'Clínica', value: clinicName || clinicId.toString(), inline: true },
-            { name: 'Tipo', value: settingType, inline: true },
-            { name: 'Telefone', value: formattedPhone, inline: true },
-            { name: 'Erro', value: errorMessage.substring(0, 1020), inline: false }, // Limita tamanho do erro
-            { name: 'Log ID', value: logId, inline: false },
-        ];
-
-        sendDiscordNotificationInternal(notificationColor, notificationTitle, notificationFields, `Status: ${LOG_STATUS.ERROR_SYSTEM}`);
+        // Notificação Discord de erro
+        sendToDiscord(
+            `Falha ao enviar mensagem automática (${settingType}) para ${formattedPhone}\n**Erro:** ${errorMessage.substring(0, 1000)}`, // Limita erro
+            'error',
+            taskName,
+            `Clínica: ${clinicName || clinicId} | Log ID: ${logIdForError}`
+        );
     }
 };
 
-// **Recebe taskName como argumento**
-const checkAndSendAppointmentReminders = async (taskName, type, daysOffset) => {
+// Função checkAndSendAppointmentReminders (usa taskName global)
+const checkAndSendAppointmentReminders = async (type, daysOffset) => {
+    // taskName é acessível globalmente
     if (!pLimit) {
          console.warn(`[SCHEDULER WORKER ${taskName}] pLimit não inicializado, abortando lembretes.`);
+         sendToDiscord(`pLimit não inicializado, abortando ${type}`, 'warn', taskName);
          return;
     }
     const limit = pLimit(5);
@@ -213,6 +219,7 @@ const checkAndSendAppointmentReminders = async (taskName, type, daysOffset) => {
         targetEndUtc = nowUtc.plus({ minutes: 4 });
     } else {
         console.warn(`[SCHEDULER WORKER ${taskName}] Tipo de lembrete não suportado para offset 0: ${type}`);
+        sendToDiscord(`Tipo de lembrete não suportado p/ offset 0: ${type}`, 'warn', taskName);
         return;
     }
 
@@ -221,8 +228,10 @@ const checkAndSendAppointmentReminders = async (taskName, type, daysOffset) => {
 
     console.log(`[SCHEDULER WORKER ${taskName}] Buscando agendamentos (${type}) entre ${targetStartDate.toISOString()} e ${targetEndDate.toISOString()}`);
 
+    // **A ORDEM CORRETA DOS REQUIRES DEVE RESOLVER O ERRO DE SCHEMA**
     const activeSettings = await MessageSetting.find({ type: type, isActive: true })
         .select('clinic template')
+        // **POPULATE DEVE FUNCIONAR AGORA**
         .populate({ path: "template", select: "content" })
         .populate({ path: "clinic", select: "name owner", populate: { path: "owner", select: "name" }})
         .lean();
@@ -234,8 +243,10 @@ const checkAndSendAppointmentReminders = async (taskName, type, daysOffset) => {
     console.log(`[SCHEDULER WORKER ${taskName}] ${activeSettings.length} configurações ativas para ${type}.`);
 
     const settingProcessingPromises = activeSettings.map(async (setting) => {
+        // Verifica se o populate funcionou e se os dados essenciais existem
         if (!setting.template?.content || !setting.clinic?._id || !setting.clinic.owner?.name) {
-             console.warn(`[SCHEDULER WORKER ${taskName}] Configuração inválida ou incompleta ignorada para clínica ${setting.clinic?._id}`);
+             console.warn(`[SCHEDULER WORKER ${taskName}] Configuração inválida ou incompleta ignorada para clínica ${setting.clinic?._id}. Template: ${setting.template?._id}, Owner: ${setting.clinic?.owner?._id}`);
+             sendToDiscord(`Configuração inválida/incompleta ignorada para ${type}`, 'warn', taskName, `Clínica: ${setting.clinic?._id}`);
              return;
         }
 
@@ -250,8 +261,8 @@ const checkAndSendAppointmentReminders = async (taskName, type, daysOffset) => {
             status: { $in: ["Agendado", "Confirmado"] },
             sendReminder: true,
         })
-        .select('patient startTime')
-        .populate({ path: "patient", select: "name phone" })
+        .select('patient startTime _id') // Seleciona _id do agendamento para logs
+        .populate({ path: "patient", select: "name phone _id" }) // Seleciona _id do paciente
         .lean();
 
         if (!appointments || appointments.length === 0) {
@@ -274,6 +285,7 @@ const checkAndSendAppointmentReminders = async (taskName, type, daysOffset) => {
             anamnesisLink: ""
           });
 
+          // Chama trySendMessageAndLog (que agora usa taskName global)
           return limit(() => trySendMessageAndLog({
             clinicId: clinicId,
             patientId: appointment.patient._id,
@@ -291,10 +303,12 @@ const checkAndSendAppointmentReminders = async (taskName, type, daysOffset) => {
     console.log(`[SCHEDULER WORKER ${taskName}] Processamento de lembretes (${type}) concluído.`);
 };
 
-// **Recebe taskName como argumento**
-const checkAndSendBirthdayWishes = async (taskName) => {
+// Função checkAndSendBirthdayWishes (usa taskName global)
+const checkAndSendBirthdayWishes = async () => {
+    // taskName é acessível globalmente
     if (!pLimit) {
          console.warn(`[SCHEDULER WORKER ${taskName}] pLimit não inicializado, abortando aniversários.`);
+         sendToDiscord(`pLimit não inicializado, abortando ${taskName}`, 'warn', taskName);
          return;
     }
     const limit = pLimit(10);
@@ -304,7 +318,7 @@ const checkAndSendBirthdayWishes = async (taskName) => {
 
     const activeSettings = await MessageSetting.find({ type: type, isActive: true })
         .select('clinic template')
-        .populate("template", "content")
+        .populate("template", "content") // **POPULATE DEVE FUNCIONAR AGORA**
         .populate({ path: "clinic", select: "name owner", populate: { path: "owner", select: "name" }})
         .lean();
 
@@ -325,7 +339,8 @@ const checkAndSendBirthdayWishes = async (taskName) => {
 
     const settingProcessingPromises = activeSettings.map(async (setting) => {
         if (!setting.template?.content || !setting.clinic?._id || !setting.clinic.owner?.name) {
-             console.warn(`[SCHEDULER WORKER ${taskName}] Configuração de aniversário inválida ignorada para clínica ${setting.clinic?._id}`);
+             console.warn(`[SCHEDULER WORKER ${taskName}] Configuração de aniversário inválida ignorada para clínica ${setting.clinic?._id}. Template: ${setting.template?._id}, Owner: ${setting.clinic?.owner?._id}`);
+             sendToDiscord(`Configuração de aniversário inválida/incompleta ignorada`, 'warn', taskName, `Clínica: ${setting.clinic?._id}`);
              return;
         }
 
@@ -353,7 +368,7 @@ const checkAndSendBirthdayWishes = async (taskName) => {
 
         const sendTasks = birthdayPatients.map(async (patientData) => {
             if (!patientData.phone) {
-                 console.warn(`[SCHEDULER WORKER ${taskName}] Paciente ${patientData._id} ignorado por falta de telefone.`);
+                 console.warn(`[SCHEDULER WORKER ${taskName}] Paciente ${patientData._id} (Aniversariante) ignorado por falta de telefone.`);
                  return Promise.resolve();
             }
 
@@ -376,6 +391,7 @@ const checkAndSendBirthdayWishes = async (taskName) => {
                 doctorName: doctorName,
             });
 
+            // Chama trySendMessageAndLog (que agora usa taskName global)
             return limit(() => trySendMessageAndLog({
                 clinicId: clinicId,
                 patientId: patientData._id,
@@ -394,71 +410,85 @@ const checkAndSendBirthdayWishes = async (taskName) => {
 };
 
 // --- Função Principal de Execução da Tarefa ---
-const runTask = async (taskName, mongoUri, ...args) => {
-    // 1. Conecta ao DB, passando taskName para logs de conexão
-    await connectDB(mongoUri, taskName);
+const runTask = async (receivedTaskName, mongoUri, ...args) => {
+    // Usa a taskName global definida no início do script para consistência
+    // const taskName = workerData?.taskName || 'UNKNOWN_TASK'; // Já definida globalmente
+
+    // 1. Conecta ao DB
+    await connectDB(mongoUri, taskName); // Passa taskName para logs de conexão
 
     // 2. Espera pLimit carregar
-    await new Promise(resolve => {
+    await new Promise((resolve, reject) => {
+        let checks = 0;
+        const maxChecks = 100; // ~10 segundos
         const checkInterval = setInterval(() => {
             if (pLimit) {
                 clearInterval(checkInterval);
                 resolve();
             } else {
-                console.warn(`[SCHEDULER WORKER ${taskName}] Aguardando p-limit carregar...`);
+                checks++;
+                 console.warn(`[SCHEDULER WORKER ${taskName}] Aguardando p-limit carregar... (${checks}/${maxChecks})`);
+                 if(checks >= maxChecks) {
+                    clearInterval(checkInterval);
+                    reject(new Error('Timeout esperando p-limit carregar.'));
+                 }
             }
         }, 100);
+    }).catch(err => {
+        // Captura o erro do timeout do p-limit
+        console.error(`[SCHEDULER WORKER ${taskName}] Erro fatal: ${err.message}`);
+        captureException(err, { tags: { severity: 'critical', context: 'p-limit-load-timeout', workerTask: taskName } });
+        if (parentPort) {
+            parentPort.postMessage({ status: 'error', taskName, error: err.message });
+        }
+        process.exit(1); // Encerra se p-limit não carregar
     });
+
 
     try {
         console.log(`[SCHEDULER WORKER ${taskName}] Iniciando execução da tarefa.`);
-        switch (taskName) {
+        switch (taskName) { // Usa a taskName global
             case 'APPOINTMENT_3_MINS_BEFORE':
-                // Passa taskName para a função
-                await checkAndSendAppointmentReminders(taskName, taskName, 0);
+                await checkAndSendAppointmentReminders(taskName, 0); // Passa type e offset
                 break;
             case 'APPOINTMENT_2_DAYS_BEFORE':
-                 // Passa taskName para a função
-                await checkAndSendAppointmentReminders(taskName, taskName, 2);
+                await checkAndSendAppointmentReminders(taskName, 2); // Passa type e offset
                 break;
             case 'APPOINTMENT_1_DAY_BEFORE':
-                 // Passa taskName para a função
-                await checkAndSendAppointmentReminders(taskName, taskName, 1);
+                await checkAndSendAppointmentReminders(taskName, 1); // Passa type e offset
                 break;
             case 'PATIENT_BIRTHDAY':
-                 // Passa taskName para a função
-                await checkAndSendBirthdayWishes(taskName);
+                await checkAndSendBirthdayWishes(); // Não precisa de type/offset extras
                 break;
             default:
-                 console.warn(`[SCHEDULER WORKER ${taskName}] Tarefa desconhecida recebida.`);
-                 sendDiscordNotificationInternal(16776960, `⚠️ Tarefa Desconhecida (${taskName})`, [{ name: 'Detalhe', value: 'Nome da tarefa não reconhecido no switch/case.' }], 'Worker'); // Amarelo
+                 console.warn(`[SCHEDULER WORKER ${taskName}] Tarefa desconhecida recebida: ${taskName}`);
+                 sendToDiscord(`Tarefa desconhecida recebida: ${taskName}`, 'warn', taskName);
                 break;
         }
         console.log(`[SCHEDULER WORKER ${taskName}] Tarefa concluída com sucesso.`);
-        parentPort.postMessage({ status: 'success', taskName });
+        if(parentPort) parentPort.postMessage({ status: 'success', taskName });
     } catch (error) {
         console.error(`[SCHEDULER WORKER ${taskName}] Erro durante a execução da tarefa:`, error.stack || error.message);
         captureException(error, { tags: { severity: 'worker_task_failure', task: taskName, context: 'runTaskWorker' } });
-        parentPort.postMessage({ status: 'error', taskName, error: error.message });
-        sendDiscordNotificationInternal(15158332, `❌ ERRO no Worker (${taskName})`, [{ name: 'Erro', value: (error.message || 'Erro desconhecido').substring(0,1020) }], 'Worker');
+        if(parentPort) parentPort.postMessage({ status: 'error', taskName, error: error.message });
+        sendToDiscord(`Erro durante a execução: ${error.message.substring(0, 1000)}`, 'error', taskName);
     } finally {
-        // Mantenha comentado por enquanto
+        // Manter desconexão comentada por enquanto
         // await mongoose.disconnect();
         // console.log(`[SCHEDULER WORKER ${taskName}] MongoDB Desconectado.`);
     }
 };
 
 // --- Ponto de Entrada do Worker ---
-if (workerData?.taskName && workerData?.mongoUri) {
-    const taskNameForInit = workerData.taskName; // Usa uma variável local aqui
-    console.log(`[SCHEDULER WORKER ${taskNameForInit}] Iniciado com sucesso.`);
+if (taskName !== 'UNKNOWN_TASK' && workerData?.mongoUri) {
+    console.log(`[SCHEDULER WORKER ${taskName}] Iniciado com sucesso.`);
     // Passa os dados recebidos para runTask
-    runTask(workerData.taskName, workerData.mongoUri, ...(workerData.args || []));
+    runTask(taskName, workerData.mongoUri, ...(workerData.args || []));
 } else {
     const errorMsg = 'Worker thread iniciado sem taskName ou mongoUri essenciais em workerData.';
     console.error(`[SCHEDULER WORKER] ${errorMsg}`, workerData);
     if (parentPort) {
-      parentPort.postMessage({ status: 'error', taskName: workerData?.taskName || 'Desconhecida', error: errorMsg });
+      parentPort.postMessage({ status: 'error', taskName: taskName, error: errorMsg });
     }
     process.exit(1);
 }

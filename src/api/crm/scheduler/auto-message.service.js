@@ -114,7 +114,7 @@ exports.startAutoMessageScheduler = () => {
       runTaskInWorker("PATIENT_BIRTHDAY");
     },
     {
-      timezone: "UTC", // Especifica explicitamente que o horário é UTC
+      timezone: "UTC",
     }
   );
 
