@@ -200,107 +200,116 @@ const trySendMessageAndLog = async ({
 };
 
 // Função checkAndSendAppointmentReminders (usa taskName global)
+// Função checkAndSendAppointmentReminders (usa taskName global)
 const checkAndSendAppointmentReminders = async (type, daysOffset) => {
-    // taskName é acessível globalmente
-    if (!pLimit) {
-         console.warn(`[SCHEDULER WORKER ${taskName}] pLimit não inicializado, abortando lembretes.`);
-         sendToDiscord(`pLimit não inicializado, abortando ${type}`, 'warn', taskName);
-         return;
-    }
-    const limit = pLimit(5);
-    const nowUtc = DateTime.utc();
+  // taskName é acessível globalmente
+  if (!pLimit) {
+       console.warn(`[SCHEDULER WORKER ${taskName}] pLimit não inicializado, abortando lembretes.`);
+       sendToDiscord(`pLimit não inicializado, abortando ${type}`, 'warn', taskName);
+       return;
+  }
+  const limit = pLimit(5);
+  const nowUtc = DateTime.utc();
 
-    let targetStartUtc, targetEndUtc;
-    if (daysOffset > 0) {
-        targetStartUtc = nowUtc.plus({ days: daysOffset }).setZone(BR_TZ).startOf('day').toUTC();
-        targetEndUtc = nowUtc.plus({ days: daysOffset }).setZone(BR_TZ).endOf('day').toUTC();
-    } else if (type === 'APPOINTMENT_3_MINS_BEFORE') {
-        targetStartUtc = nowUtc.plus({ minutes: 3 });
-        targetEndUtc = nowUtc.plus({ minutes: 4 });
-    } else {
-        console.warn(`[SCHEDULER WORKER ${taskName}] Tipo de lembrete não suportado para offset 0: ${type}`);
-        sendToDiscord(`Tipo de lembrete não suportado p/ offset 0: ${type}`, 'warn', taskName);
-        return;
-    }
+  let targetStartUtc, targetEndUtc;
+  if (daysOffset > 0) {
+      // Lógica para 1 ou 2 dias antes
+      targetStartUtc = nowUtc.plus({ days: daysOffset }).setZone(BR_TZ).startOf('day').toUTC();
+      targetEndUtc = nowUtc.plus({ days: daysOffset }).setZone(BR_TZ).endOf('day').toUTC();
+  
+  } else if (type === 'APPOINTMENT_3_MINS_BEFORE') {
+      
+      // --- LÓGICA CORRIGIDA (Busca o minuto exato, 3 min à frente) ---
+      // Ex: Cron roda 14:42:01.
+      // now.plus({ minutes: 3 }) = 14:45:01
+      
+      // targetStartUtc (início do minuto) = 14:45:00.000Z
+      targetStartUtc = nowUtc.plus({ minutes: 3 }).startOf('minute');
+      
+      // targetEndUtc (fim do minuto) = 14:45:59.999Z
+      targetEndUtc = nowUtc.plus({ minutes: 3 }).endOf('minute');
+      // --- FIM DA LÓGICA CORRIGIDA ---
 
-    const targetStartDate = targetStartUtc.toJSDate();
-    const targetEndDate = targetEndUtc.toJSDate();
+  } else {
+      console.warn(`[SCHEDULER WORKER ${taskName}] Tipo de lembrete não suportado para offset 0: ${type}`);
+      sendToDiscord(`Tipo de lembrete não suportado p/ offset 0: ${type}`, 'warn', taskName);
+      return;
+  }
 
-    console.log(`[SCHEDULER WORKER ${taskName}] Buscando agendamentos (${type}) entre ${targetStartDate.toISOString()} e ${targetEndDate.toISOString()}`);
+  const targetStartDate = targetStartUtc.toJSDate();
+  const targetEndDate = targetEndUtc.toJSDate();
 
-    // **A ORDEM CORRETA DOS REQUIRES DEVE RESOLVER O ERRO DE SCHEMA**
-    const activeSettings = await MessageSetting.find({ type: type, isActive: true })
-        .select('clinic template')
-        // **POPULATE DEVE FUNCIONAR AGORA**
-        .populate({ path: "template", select: "content" })
-        .populate({ path: "clinic", select: "name owner", populate: { path: "owner", select: "name" }})
-        .lean();
+  console.log(`[SCHEDULER WORKER ${taskName}] Buscando agendamentos (${type}) entre ${targetStartDate.toISOString()} e ${targetEndDate.toISOString()}`);
 
-    if (!activeSettings || activeSettings.length === 0) {
-        console.log(`[SCHEDULER WORKER ${taskName}] Nenhuma configuração ativa encontrada para ${type}.`);
-        return;
-    }
-    console.log(`[SCHEDULER WORKER ${taskName}] ${activeSettings.length} configurações ativas para ${type}.`);
+  const activeSettings = await MessageSetting.find({ type: type, isActive: true })
+      .select('clinic template')
+      .populate({ path: "template", select: "content" })
+      .populate({ path: "clinic", select: "name owner", populate: { path: "owner", select: "name" }})
+      .lean();
 
-    const settingProcessingPromises = activeSettings.map(async (setting) => {
-        // Verifica se o populate funcionou e se os dados essenciais existem
-        if (!setting.template?.content || !setting.clinic?._id || !setting.clinic.owner?.name) {
-             console.warn(`[SCHEDULER WORKER ${taskName}] Configuração inválida ou incompleta ignorada para clínica ${setting.clinic?._id}. Template: ${setting.template?._id}, Owner: ${setting.clinic?.owner?._id}`);
-             sendToDiscord(`Configuração inválida/incompleta ignorada para ${type}`, 'warn', taskName, `Clínica: ${setting.clinic?._id}`);
-             return;
+  if (!activeSettings || activeSettings.length === 0) {
+      console.log(`[SCHEDULER WORKER ${taskName}] Nenhuma configuração ativa encontrada para ${type}.`);
+      return;
+  }
+  console.log(`[SCHEDULER WORKER ${taskName}] ${activeSettings.length} configurações ativas para ${type}.`);
+
+  const settingProcessingPromises = activeSettings.map(async (setting) => {
+      if (!setting.template?.content || !setting.clinic?._id || !setting.clinic.owner?.name) {
+           console.warn(`[SCHEDULER WORKER ${taskName}] Configuração inválida ou incompleta ignorada para clínica ${setting.clinic?._id}. Template: ${setting.template?._id}, Owner: ${setting.clinic?.owner?._id}`);
+           sendToDiscord(`Configuração inválida/incompleta ignorada para ${type}`, 'warn', taskName, `Clínica: ${setting.clinic?._id}`);
+           return;
+      }
+
+      const { _id: clinicId, name: clinicName, owner } = setting.clinic;
+      const doctorName = owner.name;
+      const templateContent = setting.template.content;
+      const templateId = setting.template._id;
+
+      const appointments = await Appointment.find({
+          clinic: clinicId,
+          startTime: { $gte: targetStartDate, $lte: targetEndDate },
+          status: { $in: ["Agendado", "Confirmado"] },
+          sendReminder: true,
+      })
+      .select('patient startTime _id') 
+      .populate({ path: "patient", select: "name phone _id" }) 
+      .lean();
+
+      if (!appointments || appointments.length === 0) {
+          return;
+      }
+      console.log(`[SCHEDULER WORKER ${taskName}] ${appointments.length} agendamentos encontrados para ${clinicName} (${type}).`);
+
+      const sendTasks = appointments.map(appointment => {
+        if (!appointment.patient?._id || !appointment.patient.phone) {
+            console.warn(`[SCHEDULER WORKER ${taskName}] Agendamento ${appointment._id} ignorado por falta de dados do paciente.`);
+            return Promise.resolve();
         }
 
-        const { _id: clinicId, name: clinicName, owner } = setting.clinic;
-        const doctorName = owner.name;
-        const templateContent = setting.template.content;
-        const templateId = setting.template._id;
-
-        const appointments = await Appointment.find({
-            clinic: clinicId,
-            startTime: { $gte: targetStartDate, $lte: targetEndDate },
-            status: { $in: ["Agendado", "Confirmado"] },
-            sendReminder: true,
-        })
-        .select('patient startTime _id') // Seleciona _id do agendamento para logs
-        .populate({ path: "patient", select: "name phone _id" }) // Seleciona _id do paciente
-        .lean();
-
-        if (!appointments || appointments.length === 0) {
-            return;
-        }
-        console.log(`[SCHEDULER WORKER ${taskName}] ${appointments.length} agendamentos encontrados para ${clinicName} (${type}).`);
-
-        const sendTasks = appointments.map(appointment => {
-          if (!appointment.patient?._id || !appointment.patient.phone) {
-              console.warn(`[SCHEDULER WORKER ${taskName}] Agendamento ${appointment._id} ignorado por falta de dados do paciente.`);
-              return Promise.resolve();
-          }
-
-          const finalMessage = fillTemplate(templateContent, {
-            patientName: appointment.patient.name,
-            clinicName: clinicName,
-            doctorName: doctorName,
-            appointmentDate: formatDate(appointment.startTime),
-            appointmentTime: formatTime(appointment.startTime),
-            anamnesisLink: ""
-          });
-
-          // Chama trySendMessageAndLog (que agora usa taskName global)
-          return limit(() => trySendMessageAndLog({
-            clinicId: clinicId,
-            patientId: appointment.patient._id,
-            recipientPhone: appointment.patient.phone,
-            finalMessage: finalMessage,
-            settingType: type,
-            templateId: templateId,
-            clinicName: clinicName,
-          }));
+        const finalMessage = fillTemplate(templateContent, {
+          patientName: appointment.patient.name,
+          clinicName: clinicName,
+          doctorName: doctorName,
+          appointmentDate: formatDate(appointment.startTime),
+          appointmentTime: formatTime(appointment.startTime),
+          anamnesisLink: ""
         });
-        await Promise.all(sendTasks);
-    });
 
-    await Promise.all(settingProcessingPromises);
-    console.log(`[SCHEDULER WORKER ${taskName}] Processamento de lembretes (${type}) concluído.`);
+        return limit(() => trySendMessageAndLog({
+          clinicId: clinicId,
+          patientId: appointment.patient._id,
+          recipientPhone: appointment.patient.phone,
+          finalMessage: finalMessage,
+          settingType: type,
+          templateId: templateId,
+          clinicName: clinicName,
+        }));
+      });
+      await Promise.all(sendTasks);
+  });
+
+  await Promise.all(settingProcessingPromises);
+  console.log(`[SCHEDULER WORKER ${taskName}] Processamento de lembretes (${type}) concluído.`);
 };
 
 // Função checkAndSendBirthdayWishes (usa taskName global)

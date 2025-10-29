@@ -96,9 +96,10 @@ exports.startAutoMessageScheduler = () => {
     "--- Iniciando Agendador de Mensagens Automáticas (em Worker Threads)... ---"
   );
 
-    cron.schedule("*/3 * * * *", () => { // Pode manter a execução a cada 3 minutos ou ajustar se preferir
-        runTaskInWorker("APPOINTMENT_3_MINS_BEFORE"); // <-- RENOMEADO AQUI
-    });
+  // CRON JOB 1: A CADA MINUTO (Verifica lembretes de 3 minutos)
+  cron.schedule("* * * * *", () => { // <-- ALTERADO DE "*/3 * * * *" PARA "* * * * *"
+    runTaskInWorker("APPOINTMENT_3_MINS_BEFORE");
+  });
 
   // CRON JOB 2: DIÁRIO (Verifica lembretes de 1 e 2 dias e aniversários)
   // "0 1 * * *" = 1:00 AM UTC
@@ -114,7 +115,7 @@ exports.startAutoMessageScheduler = () => {
       runTaskInWorker("PATIENT_BIRTHDAY");
     },
     {
-      timezone: "UTC",
+      timezone: "UTC",  
     }
   );
 
