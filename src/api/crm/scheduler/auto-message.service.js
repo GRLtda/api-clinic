@@ -26,12 +26,15 @@ const runTaskInWorker = (taskName) => {
   );
 
   const worker = new Worker(workerPath, {
-    workerData: { taskName },
-    resourceLimits: {
-      maxOldGenerationSizeMb: 1024,
-      maxYoungGenerationSizeMb: 16,
+    workerData: {
+        taskName,
+        mongoUri: process.env.MONGO_URI
     },
-  });
+    resourceLimits: {
+        maxOldGenerationSizeMb: 1024,
+        maxYoungGenerationSizeMb: 16,
+    }
+});
 
   worker.on("message", (msg) => {
     if (msg.status === "error") {
