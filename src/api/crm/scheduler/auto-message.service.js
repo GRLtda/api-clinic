@@ -61,7 +61,7 @@ exports.startAutoMessageScheduler = () => {
     console.log("--- Iniciando Agendador de Mensagens Automáticas (em Worker Threads)... ---");
 
     // CRON JOB 1: A CADA MINUTO (Verifica lembretes de 1 minuto)
-    cron.schedule("*/2 * * * *", () => {
+    cron.schedule("*/3 * * * *", () => {
       runTaskInWorker("APPOINTMENT_1_MIN_BEFORE");
     });
 
