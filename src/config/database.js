@@ -9,8 +9,10 @@ const connectDB = async () => {
 
   try {
     await mongoose.connect(process.env.MONGO_URI, {
-      autoIndex: true, // em prod, preferir gerenciar índices manualmente
-      maxPoolSize: 20,  // melhora concorrência
+      autoIndex: true,
+      maxPoolSize: 20,
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
     });
 
     console.log('MongoDB Conectado com Sucesso!');
