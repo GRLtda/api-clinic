@@ -26,11 +26,6 @@ app.get('/', (req, res) => {
   res.send('API do Sistema de Clínicas no ar!');
 });
 
-app.get("/debug-sentry", function mainHandler(req, res) {
-  throw new Error("My first Sentry error!");
-});
-
-
 // Rotas da API
 app.use('/api/auth', authRoutes);
 app.use('/api/clinics', clinicRoutes); 

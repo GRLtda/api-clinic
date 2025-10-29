@@ -16,7 +16,6 @@ const runTaskInWorker = (taskName) => {
     const worker = new Worker(workerPath, {
         workerData: { taskName },
         resourceLimits: {
-            // Define limites para evitar que o worker sobrecarregue a memória, se necessário
             maxOldGenerationSizeMb: 1024,
             maxYoungGenerationSizeMb: 16,
         }
