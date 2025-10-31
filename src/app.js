@@ -15,6 +15,7 @@ const crmRoutes = require('./api/crm/conexao/crm.routes');
 const messageTemplateRoutes = require('./api/crm/modelos/message-template.routes');
 const messageSettingsRoutes = require('./api/crm/message-settings.routes');
 const messageLogRoutes = require('./api/crm/logs/message-log.routes');
+const employeeRoutes = require('./api/employees/employees.routes');
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/anamnesis-templates', anamnesisTemplateRoutes);
 app.use('/api', anamnesisResponseRoutes); 
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/employees', employeeRoutes);
 
 // Rotas de CRM
 app.use('/api/crm', crmRoutes);
