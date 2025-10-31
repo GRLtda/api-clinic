@@ -8,6 +8,7 @@ const authRoutes = require('./api/auth/auth.routes');
 const clinicRoutes = require('./api/clinics/clinics.routes');
 const appointmentRoutes = require('./api/appointments/appointments.routes'); 
 const uploadRoutes = require('./api/uploads/uploads.routes');
+const recordsRoutes = require('./api/records/records.routes');
 const anamnesisTemplateRoutes = require('./api/anamnesis/anamnesis-template.routes');
 const anamnesisResponseRoutes = require('./api/anamnesis/anamnesis-response.routes');
 // --- IMPORTS DO CRM ---
@@ -31,6 +32,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/clinics', clinicRoutes); 
 app.use('/api/patients', patientRoutes);
+app.use('/api/records', recordsRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/anamnesis-templates', anamnesisTemplateRoutes);
 app.use('/api', anamnesisResponseRoutes); 
