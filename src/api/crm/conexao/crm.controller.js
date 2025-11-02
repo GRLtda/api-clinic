@@ -4,7 +4,7 @@ const expressAsyncHandler = require("express-async-handler");
 const whatsappServiceClient = require('../../../services/whatsappServiceClient');
 // Mantém imports necessários para lógica que permanece na API Principal (logs, dados, templates)
 const { createLogEntry } = require("../logs/message-log.controller");
-const { MessageLog, LOG_STATUS, ACTION_TYPES } = require("../logs/message-log.model");
+const { MessageLog, LOG_STATUS, ACTION_TYPES } = require("../logs/message-log.model"); //
 const Patient = require("../../patients/patients.model");
 const MessageTemplate = require("../modelos/message-template.model");
 const Clinic = require("../../clinics/clinics.model");
@@ -151,23 +151,35 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
       clinic: clinicId,
       patient: patientId,
       template: templateId || null,
-      settingType: "MANUAL_SEND",
+      settingType: "MANUAL_SEND", // Ajuste se necessário, mas 'type' não é enum de ACTION_TYPES
       messageContent: message,
       recipientPhone: number,
-      status: LOG_STATUS.SENT_ATTEMPT,
-      actionType: ACTION_TYPES.MANUAL_SEND,
+      status: LOG_STATUS.SENT_ATTEMPT, //
+      actionType: ACTION_TYPES.MANUAL_SEND, //
     });
 
     // 2. Chamar o serviço WhatsApp para enviar
     const response = await whatsappServiceClient.sendMessage(clinicId, number, message);
+    const responseData = response.data;
+
+    // --- LÓGICA DE ATUALIZAÇÃO DO LOG (MODIFICADA) ---
+    let finalStatus = LOG_STATUS.DELIVERED; //
+    let messageId = responseData.result?.id?.id || responseData.result?.id || null;
+
+    // Se a resposta indicar que foi para a fila, atualizamos o status para PENDING
+    if (responseData.message === "Mensagem enviada para a fila.") {
+      finalStatus = LOG_STATUS.PENDING; //
+    }
+    // --- FIM DA MODIFICAÇÃO ---
 
     // 3. Atualizar o log com sucesso
     await MessageLog.findByIdAndUpdate(logEntry._id, {
-      status: LOG_STATUS.DELIVERED, // Ou status baseado na resposta do serviço
-      wwebjsMessageId: response.data?.result?.id?.id || null,
+      status: finalStatus,
+      wwebjsMessageId: messageId,
     });
 
-    res.status(200).json({ message: "Solicitação de envio enviada com sucesso.", serviceResponse: response.data });
+    // Retorna a resposta original do serviço de WhatsApp
+    res.status(response.status || 200).json(responseData);
 
   } catch (error) {
     captureException(error, {
@@ -178,7 +190,7 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
     // 4. Atualizar o log com erro
     if (logEntry) {
       await MessageLog.findByIdAndUpdate(logEntry._id, {
-        status: LOG_STATUS.ERROR_SYSTEM,
+        status: LOG_STATUS.ERROR_SYSTEM, //
         errorMessage: error.response?.data?.message || error.message,
       });
     }
@@ -230,27 +242,34 @@ exports.sendTestMessage = expressAsyncHandler(async (req, res) => {
       clinic: clinicId,
       patient: patientId,
       template: templateId,
-      settingType: "MANUAL_TEST",
+      settingType: null, // Teste manual não tem um 'settingType'
       messageContent: testMessageContent,
       recipientPhone: data.patient.phone,
-      status: LOG_STATUS.SENT_ATTEMPT,
-      actionType: ACTION_TYPES.MANUAL_SEND,
+      status: LOG_STATUS.SENT_ATTEMPT, //
+      actionType: ACTION_TYPES.MANUAL_SEND, //
     });
 
     // 4. Envia a mensagem via serviço dedicado
     const response = await whatsappServiceClient.sendMessage(clinicId, data.patient.phone, testMessageContent);
+    const responseData = response.data;
+
+    // --- LÓGICA DE ATUALIZAÇÃO DO LOG (MODIFICADA) ---
+    let finalStatus = LOG_STATUS.DELIVERED; //
+    let messageId = responseData.result?.id?.id || responseData.result?.id || null;
+
+    if (responseData.message === "Mensagem enviada para a fila.") {
+      finalStatus = LOG_STATUS.PENDING; //
+    }
+    // --- FIM DA MODIFICAÇÃO ---
 
     // 5. Atualiza o log de sucesso
     await MessageLog.findByIdAndUpdate(logEntry._id, {
-      status: LOG_STATUS.DELIVERED,
-      wwebjsMessageId: response.data?.result?.id?.id || null,
+      status: finalStatus,
+      wwebjsMessageId: messageId,
     });
 
-    res.status(200).json({
-      message: "Mensagem de teste enviada com sucesso.",
-      logId: logEntry._id,
-      serviceResponse: response.data,
-    });
+    // Retorna a resposta original do serviço
+    res.status(response.status || 200).json(responseData);
 
   } catch (error) {
     captureException(error, {
@@ -261,7 +280,7 @@ exports.sendTestMessage = expressAsyncHandler(async (req, res) => {
     // 6. Atualiza o log de erro
     if (logEntry) {
       await MessageLog.findByIdAndUpdate(logEntry._id, {
-        status: LOG_STATUS.ERROR_SYSTEM,
+        status: LOG_STATUS.ERROR_SYSTEM, //
         errorMessage: error.response?.data?.message || error.message,
       });
     }

@@ -94,6 +94,26 @@ exports.removeEmployee = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Funcionário removido com sucesso.' });
 });
 
+// @desc    Cancelar (deletar) um convite pendente
+// @route   DELETE /api/employees/invite/:id
+// @access  Private
+exports.cancelInvitation = asyncHandler(async (req, res) => {
+  const { id } = req.params; // ID do documento EmployeeInvitation
+  const clinicId = req.clinicId;
+
+  const deletedInvitation = await EmployeeInvitation.findOneAndDelete({
+    _id: id,
+    clinic: clinicId,
+    status: 'pending', // Garante que só estamos excluindo convites pendentes
+  });
+
+  if (!deletedInvitation) {
+    return res.status(404).json({ message: 'Convite pendente não encontrado.' });
+  }
+
+  res.status(200).json({ message: 'Convite cancelado com sucesso.' });
+});
+
 
 // @desc    Atualizar cargo de um funcionário
 // @route   PUT /api/employees/:id/role

@@ -11,7 +11,8 @@ router.use(isAuthenticated, requireClinic);
 
 router.post('/invite', controller.inviteEmployee);
 router.get('/', controller.listEmployees);
-router.delete('/:id/remove', controller.removeEmployee); // ROTA ATUALIZADA
+router.delete('/:id/remove', controller.removeEmployee);
+router.delete('/invite/:id/cancel', controller.cancelInvitation);
 router.put('/:id/role', controller.updateEmployeeRole);
 
 module.exports = router;
