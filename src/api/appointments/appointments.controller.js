@@ -372,6 +372,54 @@ exports.deleteAppointment = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------
+// @desc    Verificar se há conflito de horário
+// @route   GET /api/appointments/check-conflict
+// @access  Private (Requer clínica)
+// ---------------------------------------------------------
+exports.checkConflict = asyncHandler(async (req, res) => {
+  const { patientId, startTime, endTime, ignoreId } = req.query;
+  const clinicId = req.clinicId;
+
+  // 1. Validação de entrada
+  if (!patientId || !startTime || !endTime) {
+    return res.status(400).json({ 
+      message: 'patientId, startTime e endTime são obrigatórios na query string.' 
+    });
+  }
+
+  // 2. Conversão de datas (reutilizando seu helper)
+  const start = parseToUTC(startTime);
+  const end = parseToUTC(endTime);
+
+  if (!start || !end) {
+    return res.status(400).json({ 
+      message: 'Datas inválidas. Use formato ISO válido (ex: 2024-10-30T14:00:00.000-03:00).' 
+    });
+  }
+  if (end <= start) {
+    return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
+  }
+
+  const conflict = await hasOverlap({
+    clinicId,
+    patientId,
+    startTime: start,
+    endTime: end,
+    ignoreId: ignoreId || null,
+  });
+
+  // 4. Resposta
+  if (conflict) {
+    return res.status(200).json({ 
+      conflict: true, 
+      message: 'Já existe um agendamento neste horário para o paciente.' 
+    });
+  }
+
+  return res.status(200).json({ conflict: false });
+});
+
+// ---------------------------------------------------------
 // @desc    Listar todos os agendamentos de um paciente
 // ---------------------------------------------------------
 exports.getAppointmentsByPatient = asyncHandler(async (req, res) => {

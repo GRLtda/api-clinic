@@ -15,4 +15,6 @@ router.patch('/:id/reschedule', controller.rescheduleAppointment);
 router.get('/patient/:patientId', controller.getAppointmentsByPatient);
 router.delete('/:id', controller.deleteAppointment);
 
+router.get('/check-conflict', controller.checkConflict);
+
 module.exports = router;
