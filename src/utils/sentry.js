@@ -1,5 +1,4 @@
 const Sentry = require('@sentry/node');
-require('dotenv').config();
 
 // Inicializa o Sentry
 Sentry.init({

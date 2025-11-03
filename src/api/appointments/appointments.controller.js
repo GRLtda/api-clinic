@@ -3,6 +3,8 @@ const Appointment = require('./appointments.model');
 const Patient = require('../patients/patients.model');
 const asyncHandler = require('../../utils/asyncHandler');
 const { DateTime } = require('luxon');
+// Importa o novo serviço de auditoria
+const auditLogService = require('../audit/audit-log.service');
 
 const BR_TZ = 'America/Sao_Paulo';
 
@@ -83,6 +85,24 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     clinic: clinicId,
   });
 
+  // --- Log de Auditoria (Criação) ---
+  await auditLogService.createLog(
+    req.user._id,
+    req.clinicId,
+    'APPOINTMENT_CREATE',
+    'Appointment',
+    newAppointment._id,
+    {
+      summary: 'Agendamento criado',
+      changes: [ // Loga os valores iniciais como "novos"
+        { field: 'status', old: null, new: newAppointment.status },
+        { field: 'patient', old: null, new: newAppointment.patient },
+        { field: 'startTime', old: null, new: newAppointment.startTime },
+      ]
+    }
+  );
+  // --- Fim do Log ---
+
   return res.status(201).json(newAppointment);
 });
 
@@ -140,6 +160,23 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
 
   const payload = pickUpdateFields(req.body);
 
+  // Campos que queremos rastrear no log
+  const fieldsToTrack = [
+    'patient',
+    'startTime',
+    'endTime',
+    'notes',
+    'status',
+    'returnInDays',
+    'sendReminder'
+  ];
+
+  // Buscar o estado ORIGINAL (antes de atualizar)
+  const originalAppointment = await Appointment.findOne({ _id: id, clinic: clinicId }).lean();
+  if (!originalAppointment) {
+    return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
+  }
+
   let start, end;
   if (payload.startTime) {
     start = parseToUTC(payload.startTime);
@@ -162,12 +199,9 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
 
   const needsOverlapCheck = (payload.patient || payload.startTime || payload.endTime);
   if (needsOverlapCheck) {
-    const current = await Appointment.findOne({ _id: id, clinic: clinicId }).select('patient startTime endTime').lean();
-    if (!current) return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
-
-    const patientId = payload.patient || current.patient;
-    const s = payload.startTime || current.startTime;
-    const e = payload.endTime || current.endTime;
+    const patientId = payload.patient || originalAppointment.patient;
+    const s = payload.startTime || originalAppointment.startTime;
+    const e = payload.endTime || originalAppointment.endTime;
 
     const overlap = await hasOverlap({ clinicId, patientId, startTime: s, endTime: e, ignoreId: id });
     if (overlap) {
@@ -175,15 +209,36 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
     }
   }
 
+  // Executar a atualização
   const updatedAppointment = await Appointment.findOneAndUpdate(
     { _id: id, clinic: clinicId },
     payload,
     { new: true, runValidators: true, omitUndefined: true }
+  ).lean(); // .lean() para pegar o objeto puro
+
+  // --- Log de Auditoria (Atualização) ---
+  // Gerar o diff
+  const diffDetails = auditLogService.generateDiffDetails(
+    originalAppointment,
+    updatedAppointment,
+    fieldsToTrack
   );
 
-  if (!updatedAppointment) {
-    return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
-  }
+  // Determinar a ação correta
+  const statusChanged = diffDetails.changes.find(c => c.field === 'status');
+  const action = statusChanged 
+    ? 'APPOINTMENT_STATUS_CHANGE' 
+    : 'APPOINTMENT_UPDATE';
+
+  await auditLogService.createLog(
+    req.user._id,
+    req.clinicId,
+    action,
+    'Appointment',
+    updatedAppointment._id,
+    diffDetails // Passa o objeto de 'changes'
+  );
+  // --- Fim do Log ---
 
   return res.status(200).json(updatedAppointment);
 });
@@ -206,12 +261,17 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
   if (!startTime || !endTime) {
     return res.status(400).json({ message: 'startTime e endTime são obrigatórios para reagendar.' });
   }
+  
+  // Campos que queremos rastrear
+  const fieldsToTrack = [
+    'startTime',
+    'endTime',
+    'notes',
+    'status',
+    'sendReminder'
+  ];
 
-  const start = parseToUTC(startTime);
-  const end = parseToUTC(endTime);
-  if (!start || !end) return res.status(400).json({ message: 'Datas inválidas.' });
-  if (end <= start) return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
-
+  // Buscar o estado ORIGINAL
   const current = await Appointment.findOne({ _id: id, clinic: clinicId }).lean();
   if (!current) return res.status(404).json({ message: 'Agendamento não encontrado nesta clínica.' });
 
@@ -219,6 +279,11 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
   if (!allowedStatuses.includes(current.status)) {
     return res.status(400).json({ message: `Não é possível reagendar um atendimento com status "${current.status}".` });
   }
+
+  const start = parseToUTC(startTime);
+  const end = parseToUTC(endTime);
+  if (!start || !end) return res.status(400).json({ message: 'Datas inválidas.' });
+  if (end <= start) return res.status(400).json({ message: 'endTime deve ser maior que startTime.' });
 
   const overlap = await hasOverlap({
     clinicId,
@@ -244,6 +309,7 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
     update.notes = `${current.notes || ''}${sep}${appendNotes.trim()}`;
   }
 
+  // Executar a atualização
   const updated = await Appointment.findOneAndUpdate(
     { _id: id, clinic: clinicId },
     update,
@@ -251,6 +317,23 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
   )
     .populate('patient', 'name phone')
     .lean();
+
+  // --- Log de Auditoria (Reagendamento) ---
+  const diffDetails = auditLogService.generateDiffDetails(
+    current,
+    updated,
+    fieldsToTrack
+  );
+
+  await auditLogService.createLog(
+    req.user._id,
+    req.clinicId,
+    'APPOINTMENT_RESCHEDULE',
+    'Appointment',
+    updated._id,
+    diffDetails
+  );
+  // --- Fim do Log ---
 
   return res.status(200).json(updated);
 });
@@ -267,6 +350,23 @@ exports.deleteAppointment = asyncHandler(async (req, res) => {
   if (!deletedAppointment) {
     return res.status(404).json({ message: 'Agendamento não encontrado para exclusão.' });
   }
+
+  // --- Log de Auditoria (Deleção) ---
+  await auditLogService.createLog(
+    req.user._id,
+    req.clinicId,
+    'APPOINTMENT_DELETE',
+    'Appointment',
+    deletedAppointment._id,
+    { 
+      summary: 'Agendamento deletado',
+      changes: [
+        { field: 'patient', old: deletedAppointment.patient, new: null },
+        { field: 'status', old: deletedAppointment.status, new: null },
+      ]
+    }
+  );
+  // --- Fim do Log ---
 
   return res.status(204).send();
 });

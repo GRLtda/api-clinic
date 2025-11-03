@@ -2,6 +2,7 @@ const Clinic = require('./clinics.model');
 const Patient = require('../patients/patients.model');
 const Appointment = require('../appointments/appointments.model');
 const asyncHandler = require('../../utils/asyncHandler');
+const auditLogService = require('../audit/audit-log.service');
 
 // helpers: whitelists de campos permitidos
 const pickCreateFields = (body) => {
@@ -63,28 +64,55 @@ exports.createClinic = asyncHandler(async (req, res) => {
 // @access  Private
 exports.updateClinic = asyncHandler(async (req, res) => {
   const clinicId = req.clinicId;
-
-  // apenas campos permitidos; não deixa alterar owner
   const updateData = pickUpdateFields(req.body);
 
-  const updatedClinic = await Clinic.findOneAndUpdate(
-    { _id: clinicId },
-    updateData,
-    {
-      new: true,
-      runValidators: true,
-      // evita setar undefined e sobrescrever campos involuntariamente
-      omitUndefined: true,
-    }
-  );
+  // 1. Campos que queremos rastrear no log
+  const fieldsToTrack = [
+    'name',
+    'cnpj',
+    'logoUrl',
+    'marketingName',
+    'responsibleName',
+    'address.cep',
+    'address.street',
+    'address.number',
+    'address.district',
+    'address.city',
+    'address.state',
+    'allowAppointmentsOutsideWorkingHours'
+  ];
 
-  if (!updatedClinic) {
+  // 2. Buscar o estado ORIGINAL (antes de atualizar)
+  const originalClinic = await Clinic.findOne({ _id: clinicId }).lean();
+  if (!originalClinic) {
     return res.status(404).json({ message: 'Clínica não encontrada.' });
   }
 
+  // 3. Executar a atualização
+  const updatedClinic = await Clinic.findOneAndUpdate(
+    { _id: clinicId },
+    updateData,
+    { new: true, runValidators: true, omitUndefined: true }
+  ).lean(); // Usamos .lean() para obter um objeto JS puro
+
+  // 4. Gerar o diff e salvar o log
+  const diffDetails = auditLogService.generateDiffDetails(
+    originalClinic,
+    updatedClinic,
+    fieldsToTrack
+  );
+
+  await auditLogService.createLog(
+    req.user._id,
+    req.clinicId,
+    'CLINIC_UPDATE',
+    'Clinic',
+    updatedClinic._id,
+    diffDetails // Passa o objeto de 'changes'
+  );
+
   return res.status(200).json(updatedClinic);
 });
-
 exports.getClinicSummary = asyncHandler(async (req, res) => {
     const clinicId = req.clinicId;
 

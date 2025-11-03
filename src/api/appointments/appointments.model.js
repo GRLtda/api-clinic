@@ -15,10 +15,11 @@ const appointmentSchema = new Schema(
       default: 'Agendado',
     },
     returnInDays: { type: Number, default: 0 },
-    sendReminder: { type: Boolean, default: false },
+    sendReminder: { type: Boolean, default: false }, // Flag principal
     remindersSent: {
       oneDayBefore: { type: Boolean, default: false },
       threeHoursBefore: { type: Boolean, default: false },
+      threeMinutesBefore: { type: Boolean, default: true }, // <-- ADICIONADO
     },
   },
   { timestamps: true }
