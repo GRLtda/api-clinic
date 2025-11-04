@@ -25,10 +25,25 @@ exports.createTemplate = asyncHandler(async (req, res) => {
 
 // Listar nomes/ids
 exports.getAllTemplates = asyncHandler(async (req, res) => {
-  const templates = await AnamnesisTemplate.find({ clinic: req.clinicId })
-    .select('name')
-    .sort({ name: 1 })
-    .lean();
+  const templates = await AnamnesisTemplate.aggregate([
+    {
+      $match: {
+        clinic: req.clinicId,
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        questionCount: { $size: '$questions' },
+      },
+    },
+    {
+      $sort: {
+        name: 1,
+      },
+    },
+  ]);
 
   return res.status(200).json(templates);
 });
