@@ -77,6 +77,7 @@ exports.updateClinic = asyncHandler(async (req, res) => {
     'address.street',
     'address.number',
     'address.district',
+    'address.complement',
     'address.city',
     'address.state',
     'allowAppointmentsOutsideWorkingHours'

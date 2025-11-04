@@ -20,6 +20,7 @@ const addressSchema = new Schema(
     street: { type: String, trim: true },
     number: { type: String, trim: true },
     district: { type: String, trim: true },
+    complement: { type: String, trim: true },
     city: { type: String, trim: true },
     state: { type: String, trim: true },
   },
