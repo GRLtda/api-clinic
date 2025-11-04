@@ -10,6 +10,7 @@ const addressSchema = new Schema(
     street: { type: String, trim: true },
     number: { type: String, trim: true },
     district: { type: String, trim: true },
+    complement: { type: String, trim: true },
     city: { type: String, trim: true },
     state: { type: String, trim: true },
   },
@@ -19,6 +20,7 @@ const addressSchema = new Schema(
 const patientSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
+    email: { type: String, trim: true, lowercase: true },
     gender: { type: String, enum: ['Masculino', 'Feminino', 'Outro'] },
     birthDate: {
       type: Date,

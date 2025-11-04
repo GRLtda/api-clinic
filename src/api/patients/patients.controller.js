@@ -6,16 +6,17 @@ const auditLogService = require('../audit/audit-log.service');
 
 // Helpers
 const pickCreateFields = (body) => {
-  const { name, gender, birthDate, phone, cpf, address } = body || {};
-  return { name, gender, birthDate, phone, cpf, address };
+  const { name, email, gender, birthDate, phone, cpf, address } = body || {}; 
+  return { name, email, gender, birthDate, phone, cpf, address };
 };
 const pickUpdateFields = (body) => {
-  const { name, gender, birthDate, phone, cpf, address } = body || {};
-  return { name, gender, birthDate, phone, cpf, address };
+  const { name, email, gender, birthDate, phone, cpf, address } = body || {}; 
+  return { name, email, gender, birthDate, phone, cpf, address };
 };
 // Campos que queremos rastrear no log de update
 const fieldsToTrack = [
   'name', 
+  'email', 
   'gender', 
   'birthDate', 
   'phone', 
@@ -24,6 +25,7 @@ const fieldsToTrack = [
   'address.street', 
   'address.number', 
   'address.district', 
+  'address.complement',
   'address.city', 
   'address.state'
 ];
@@ -62,6 +64,7 @@ exports.createPatient = asyncHandler(async (req, res) => {
         summary: 'Paciente criado',
         changes: [ // Loga os valores iniciais como "novos"
           { field: 'name', old: null, new: savedPatient.name },
+          { field: 'email', old: null, new: savedPatient.email },
           { field: 'phone', old: null, new: savedPatient.phone },
           { field: 'cpf', old: null, new: savedPatient.cpf },
         ]
