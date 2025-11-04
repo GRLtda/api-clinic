@@ -20,9 +20,9 @@ const AUDIT_ACTIONS = [
 
 // NOVO: Schema para uma mudança de campo individual
 const changeDetailSchema = new Schema({
-  field: { type: String, required: true }, // O campo que mudou (ex: 'status', 'notes')
-  old: { type: Schema.Types.Mixed },     // Valor antigo
-  new: { type: Schema.Types.Mixed },     // Valor novo
+  field: { type: String, required: true },
+  old: { type: Schema.Types.Mixed },
+  new: { type: Schema.Types.Mixed },
 }, { _id: false });
 
 const auditLogSchema = new Schema(
@@ -52,10 +52,9 @@ const auditLogSchema = new Schema(
       type: Schema.Types.ObjectId,
       index: true,
     },
-    // ATUALIZADO: 'details' agora pode conter um array de 'changes'
     details: {
-      changes: [changeDetailSchema], // Array de mudanças
-      summary: { type: String },    // Sumário opcional (ex: "Criou agendamento")
+      changes: [changeDetailSchema],
+      summary: { type: String },
     },
   },
   {

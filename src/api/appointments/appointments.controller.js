@@ -71,6 +71,7 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   const ok = await ensurePatientInClinic(patient, clinicId);
   if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
 
+  // Esta é a linha que faz a verificação de sobreposição
   const overlap = await hasOverlap({ clinicId, patientId: patient, startTime: start, endTime: end });
   if (overlap) return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
 

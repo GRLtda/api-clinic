@@ -1,6 +1,8 @@
 // api/patients/patients.controller.js
 const Patient = require('./patients.model');
 const asyncHandler = require('../../utils/asyncHandler');
+// Importa o novo serviço de auditoria
+const auditLogService = require('../audit/audit-log.service');
 
 // Helpers
 const pickCreateFields = (body) => {
@@ -11,6 +13,21 @@ const pickUpdateFields = (body) => {
   const { name, gender, birthDate, phone, cpf, address } = body || {};
   return { name, gender, birthDate, phone, cpf, address };
 };
+// Campos que queremos rastrear no log de update
+const fieldsToTrack = [
+  'name', 
+  'gender', 
+  'birthDate', 
+  'phone', 
+  'cpf', 
+  'address.cep', 
+  'address.street', 
+  'address.number', 
+  'address.district', 
+  'address.city', 
+  'address.state'
+];
+
 const notDeleted = { deletedAt: { $exists: false } };
 
 const duplicateKeyMessage = (err) => {
@@ -33,6 +50,25 @@ exports.createPatient = asyncHandler(async (req, res) => {
   const patient = new Patient({ ...data, clinicId });
   try {
     const savedPatient = await patient.save();
+
+    // --- Log de Auditoria (Criação) ---
+    await auditLogService.createLog(
+      req.user._id,
+      req.clinicId,
+      'PATIENT_CREATE',
+      'Patient',
+      savedPatient._id,
+      {
+        summary: 'Paciente criado',
+        changes: [ // Loga os valores iniciais como "novos"
+          { field: 'name', old: null, new: savedPatient.name },
+          { field: 'phone', old: null, new: savedPatient.phone },
+          { field: 'cpf', old: null, new: savedPatient.cpf },
+        ]
+      }
+    );
+    // --- Fim do Log ---
+
     return res.status(201).json(savedPatient);
   } catch (err) {
     const msg = duplicateKeyMessage(err);
@@ -107,16 +143,46 @@ exports.getPatientById = asyncHandler(async (req, res) => {
 exports.updatePatient = asyncHandler(async (req, res) => {
   const updateData = pickUpdateFields(req.body);
 
+  // --- Log de Auditoria (Update) ---
+  // 1. Buscar o estado ORIGINAL (antes de atualizar)
+  const originalPatient = await Patient.findOne({
+    _id: req.params.id,
+    clinicId: req.clinicId,
+    ...notDeleted
+  }).lean();
+
+  if (!originalPatient) {
+    return res.status(404).json({ message: 'Paciente não encontrado nesta clínica' });
+  }
+  // --- Fim da busca original ---
+
   try {
+    // 2. Executar a atualização
     const updatedPatient = await Patient.findOneAndUpdate(
       { _id: req.params.id, clinicId: req.clinicId, ...notDeleted },
       updateData,
       { new: true, runValidators: true, omitUndefined: true }
+    ).lean(); // .lean() para pegar o objeto puro para o diff
+
+    // 3. Gerar o diff e salvar o log
+    const diffDetails = auditLogService.generateDiffDetails(
+      originalPatient,
+      updatedPatient,
+      fieldsToTrack
     );
 
-    if (!updatedPatient) {
-      return res.status(404).json({ message: 'Paciente não encontrado nesta clínica' });
+    // Só grava o log se realmente houver mudanças
+    if (diffDetails.changes.length > 0) {
+      await auditLogService.createLog(
+        req.user._id,
+        req.clinicId,
+        'PATIENT_UPDATE',
+        'Patient',
+        updatedPatient._id,
+        diffDetails // Passa o objeto de 'changes'
+      );
     }
+    // --- Fim do Log ---
 
     return res.status(200).json(updatedPatient);
   } catch (err) {
@@ -137,6 +203,23 @@ exports.deletePatient = asyncHandler(async (req, res) => {
   if (!softDeleted) {
     return res.status(404).json({ message: 'Paciente não encontrado nesta clínica' });
   }
+
+  // --- Log de Auditoria (Deleção) ---
+  await auditLogService.createLog(
+    req.user._id,
+    req.clinicId,
+    'PATIENT_DELETE',
+    'Patient',
+    softDeleted._id,
+    {
+      summary: 'Paciente excluído (soft delete)',
+      changes: [
+        { field: 'name', old: softDeleted.name, new: null },
+        { field: 'deletedAt', old: null, new: softDeleted.deletedAt }
+      ]
+    }
+  );
+  // --- Fim do Log ---
 
   return res.status(204).send();
 });
