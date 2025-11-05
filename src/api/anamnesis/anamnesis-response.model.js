@@ -4,14 +4,17 @@ const { Schema } = mongoose;
 const { randomBytes } = require("crypto");
 const { nanoid } = require('nanoid');
 
+// --- Schema de Resposta (Modificado) ---
+// Trocamos 'questionTitle' por 'qId' como chave principal
 const answerSchema = new Schema(
   {
+    qId: { type: String, required: true, index: true }, 
     questionTitle: { type: String, required: true, trim: true },
-    // Poderíamos armazenar também questionId se desejar evoluir
     answer: { type: Schema.Types.Mixed, required: true },
   },
   { _id: false }
 );
+// --- FIM DA MODIFICAÇÃO ---
 
 const anamnesisResponseSchema = new Schema(
   {

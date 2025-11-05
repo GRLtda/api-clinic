@@ -83,7 +83,11 @@ exports.getAnamnesisForPatient = asyncHandler(async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('template', 'name') // Popula apenas o nome
+      // .populate('template', 'name') // <-- Bug (Linha Antiga)
+      .populate({ // <-- CORREÇÃO APLICADA
+        path: 'template',
+        select: 'name questions' // Popula o nome e o array de perguntas
+      })
       .lean(),
   ]);
 
