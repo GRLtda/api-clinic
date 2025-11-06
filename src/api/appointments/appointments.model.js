@@ -15,11 +15,22 @@ const appointmentSchema = new Schema(
       default: 'Agendado',
     },
     returnInDays: { type: Number, default: 0 },
-    sendReminder: { type: Boolean, default: false }, // Flag principal
+
+    // Gate global: se false, não envia nenhum lembrete
+    sendReminder: { type: Boolean, default: false },
+
+    // Habilitação por offset (escolha quais lembretes quer enviar)
+    reminderEnabled: {
+      oneDayBefore:     { type: Boolean, default: false },
+      twoHoursBefore:   { type: Boolean, default: false },
+      threeMinutesBefore:{ type: Boolean, default: false },
+    },
+
+    // Idempotência por offset (o QUE já foi enviado)
     remindersSent: {
-      oneDayBefore: { type: Boolean, default: false },
-      threeHoursBefore: { type: Boolean, default: false },
-      threeMinutesBefore: { type: Boolean, default: true }, // <-- ADICIONADO
+      oneDayBefore:     { type: Boolean, default: false },
+      twoHoursBefore:   { type: Boolean, default: false },
+      threeMinutesBefore:{ type: Boolean, default: false },
     },
   },
   { timestamps: true }

@@ -42,16 +42,17 @@ const pickUpdateFields = (body) => {
     status,
     returnInDays,
     sendReminder,
+    reminderEnabled, // <--- novo
     remindersSent,
   } = body || {};
-  return { patient, startTime, endTime, notes, status, returnInDays, sendReminder, remindersSent };
+  return { patient, startTime, endTime, notes, status, returnInDays, sendReminder, reminderEnabled, remindersSent };
 };
 
 // ---------------------------------------------------------
 // @desc    Criar (agendar) uma nova consulta
 // ---------------------------------------------------------
 exports.createAppointment = asyncHandler(async (req, res) => {
-  const { patient, startTime, endTime, notes, status, returnInDays, sendReminder } = req.body;
+  const { patient, startTime, endTime, notes, status, returnInDays, sendReminder, reminderEnabled } = req.body;
   const clinicId = req.clinicId;
 
   if (!patient || !startTime || !endTime) {
@@ -71,7 +72,7 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   const ok = await ensurePatientInClinic(patient, clinicId);
   if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
 
-  // Esta é a linha que faz a verificação de sobreposição
+  // Verificação de sobreposição
   const overlap = await hasOverlap({ clinicId, patientId: patient, startTime: start, endTime: end });
   if (overlap) return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
 
@@ -82,8 +83,14 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     notes,
     status,
     returnInDays,
-    sendReminder,
+    sendReminder: !!sendReminder,
     clinic: clinicId,
+    // habilitações por offset (se não vier, defaults do schema = false)
+    reminderEnabled: {
+      oneDayBefore:     !!reminderEnabled?.oneDayBefore,
+      twoHoursBefore:   !!reminderEnabled?.twoHoursBefore,
+      threeMinutesBefore: !!reminderEnabled?.threeMinutesBefore,
+    },
   });
 
   // --- Log de Auditoria (Criação) ---
@@ -169,7 +176,10 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
     'notes',
     'status',
     'returnInDays',
-    'sendReminder'
+    'sendReminder',
+    'reminderEnabled.oneDayBefore',
+    'reminderEnabled.twoHoursBefore',
+    'reminderEnabled.threeMinutesBefore',
   ];
 
   // Buscar o estado ORIGINAL (antes de atualizar)
@@ -208,6 +218,15 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
     if (overlap) {
       return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
     }
+  }
+
+  // Normalização de reminderEnabled (merge com o existente)
+  if (payload.reminderEnabled) {
+    payload.reminderEnabled = {
+      oneDayBefore:     payload.reminderEnabled.oneDayBefore     ?? originalAppointment.reminderEnabled?.oneDayBefore ?? false,
+      twoHoursBefore:   payload.reminderEnabled.twoHoursBefore   ?? originalAppointment.reminderEnabled?.twoHoursBefore ?? false,
+      threeMinutesBefore: payload.reminderEnabled.threeMinutesBefore ?? originalAppointment.reminderEnabled?.threeMinutesBefore ?? false,
+    };
   }
 
   // Executar a atualização
@@ -256,6 +275,7 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
     notes,
     appendNotes,
     sendReminder,
+    reminderEnabled, // <--- novo (opcional)
     resetStatus = true,
   } = req.body || {};
 
@@ -269,7 +289,10 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
     'endTime',
     'notes',
     'status',
-    'sendReminder'
+    'sendReminder',
+    'reminderEnabled.oneDayBefore',
+    'reminderEnabled.twoHoursBefore',
+    'reminderEnabled.threeMinutesBefore',
   ];
 
   // Buscar o estado ORIGINAL
@@ -300,8 +323,19 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
 
   if (typeof sendReminder === 'boolean') {
     update.sendReminder = sendReminder;
-    update.remindersSent = { oneDayBefore: false, threeHoursBefore: false };
   }
+
+  // Se vier reminderEnabled, aplicamos/mesclamos:
+  if (reminderEnabled && typeof reminderEnabled === 'object') {
+    update.reminderEnabled = {
+      oneDayBefore:       reminderEnabled.oneDayBefore       ?? current.reminderEnabled?.oneDayBefore ?? false,
+      twoHoursBefore:     reminderEnabled.twoHoursBefore     ?? current.reminderEnabled?.twoHoursBefore ?? false,
+      threeMinutesBefore: reminderEnabled.threeMinutesBefore ?? current.reminderEnabled?.threeMinutesBefore ?? false,
+    };
+  }
+
+  // Ao reagendar, resetamos idempotência (sempre faz sentido)
+  update.remindersSent = { oneDayBefore: false, twoHoursBefore: false, threeMinutesBefore: false };
 
   if (typeof notes === 'string') {
     update.notes = notes.trim();
