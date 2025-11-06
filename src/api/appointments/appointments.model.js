@@ -2,6 +2,7 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
+
 const appointmentSchema = new Schema(
   {
     patient: { type: Schema.Types.ObjectId, ref: 'Patient', required: true, index: true },
@@ -14,12 +15,12 @@ const appointmentSchema = new Schema(
       enum: ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Não Compareceu'],
       default: 'Agendado',
     },
-    returnInDays: { type: Number, default: 0 },
-    sendReminder: { type: Boolean, default: false }, // Flag principal
+    isReturn: { type: Boolean, default: false },
+    sendReminder: { type: Boolean, default: false },
     remindersSent: {
       oneDayBefore: { type: Boolean, default: false },
       threeHoursBefore: { type: Boolean, default: false },
-      threeMinutesBefore: { type: Boolean, default: true }, // <-- ADICIONADO
+      threeMinutesBefore: { type: Boolean, default: true }, 
     },
   },
   { timestamps: true }

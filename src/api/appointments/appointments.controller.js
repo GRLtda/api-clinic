@@ -40,18 +40,19 @@ const pickUpdateFields = (body) => {
     endTime,
     notes,
     status,
-    returnInDays,
     sendReminder,
     remindersSent,
+    isReturn,
+    originAppointment
   } = body || {};
-  return { patient, startTime, endTime, notes, status, returnInDays, sendReminder, remindersSent };
+  return { patient, startTime, endTime, notes, status, sendReminder, remindersSent, isReturn }; // <-- ADICIONADO
 };
 
 // ---------------------------------------------------------
 // @desc    Criar (agendar) uma nova consulta
 // ---------------------------------------------------------
 exports.createAppointment = asyncHandler(async (req, res) => {
-  const { patient, startTime, endTime, notes, status, returnInDays, sendReminder } = req.body;
+  const { patient, startTime, endTime, notes, status, returnInDays, sendReminder, isReturn } = req.body;
   const clinicId = req.clinicId;
 
   if (!patient || !startTime || !endTime) {
@@ -71,11 +72,31 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   const ok = await ensurePatientInClinic(patient, clinicId);
   if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
 
-  // Esta é a linha que faz a verificação de sobreposição
   const overlap = await hasOverlap({ clinicId, patientId: patient, startTime: start, endTime: end });
   if (overlap) return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
 
-  const newAppointment = await Appointment.create({
+  // --- LÓGICA DE BUSCA DA ÚLTIMA CONSULTA (SE FOR RETORNO) ---
+  let lastAppointmentId = null;
+
+  if (isReturn === true) {
+    // Busca o agendamento anterior mais recente deste paciente na clínica
+    const lastAppointment = await Appointment.findOne({
+      patient: patient,
+      clinic: clinicId,
+      startTime: { $lt: start } // Apenas consultas ANTES da data de início atual
+    })
+    .sort({ startTime: -1 }) // Ordena para pegar a mais recente
+    .select('_id') // Precisamos apenas do ID
+    .lean();
+
+    if (lastAppointment) {
+      lastAppointmentId = lastAppointment._id;
+    }
+  }
+  // --- FIM DA LÓGICA DE BUSCA ---
+
+  // Prepara os dados para criação
+  const newAppointmentData = {
     patient,
     startTime: start,
     endTime: end,
@@ -83,8 +104,16 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     status,
     returnInDays,
     sendReminder,
+    isReturn,
     clinic: clinicId,
-  });
+  };
+
+  // Adiciona a referência à consulta de origem APENAS se for encontrada
+  if (lastAppointmentId) {
+    newAppointmentData.originAppointment = lastAppointmentId;
+  }
+
+  const newAppointment = await Appointment.create(newAppointmentData);
 
   // --- Log de Auditoria (Criação) ---
   await auditLogService.createLog(
@@ -95,10 +124,13 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     newAppointment._id,
     {
       summary: 'Agendamento criado',
-      changes: [ // Loga os valores iniciais como "novos"
+      changes: [ 
         { field: 'status', old: null, new: newAppointment.status },
         { field: 'patient', old: null, new: newAppointment.patient },
         { field: 'startTime', old: null, new: newAppointment.startTime },
+        { field: 'isReturn', old: null, new: newAppointment.isReturn },
+        // Loga o novo campo
+        { field: 'originAppointment', old: null, new: newAppointment.originAppointment || null },
       ]
     }
   );
@@ -168,7 +200,6 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
     'endTime',
     'notes',
     'status',
-    'returnInDays',
     'sendReminder'
   ];
 
