@@ -113,7 +113,7 @@ exports.createAppointment = asyncHandler(async (req, res) => {
       twoHoursBefore:   !!reminderEnabled?.twoHoursBefore,
       threeMinutesBefore: !!reminderEnabled?.threeMinutesBefore,
     },
-  });
+  };
 
   // --- Log de Auditoria (Criação) ---
   await auditLogService.createLog(
