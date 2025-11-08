@@ -17,7 +17,14 @@ const appointmentSchema = new Schema(
     },
     returnInDays: { type: Number, default: 0 },
 
-    // Gate global: se false, não envia nenhum lembrete
+    isReturn: { type: Boolean, default: false },
+    originAppointment: { 
+      type: Schema.Types.ObjectId, 
+      ref: 'Appointment',
+      index: true,
+      default: undefined
+    },
+
     sendReminder: { type: Boolean, default: false },
 
     // Habilitação por offset (escolha quais lembretes quer enviar)

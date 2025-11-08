@@ -3,7 +3,6 @@ const Appointment = require('./appointments.model');
 const Patient = require('../patients/patients.model');
 const asyncHandler = require('../../utils/asyncHandler');
 const { DateTime } = require('luxon');
-// Importa o novo serviço de auditoria
 const auditLogService = require('../audit/audit-log.service');
 
 const BR_TZ = 'America/Sao_Paulo';
@@ -11,7 +10,6 @@ const BR_TZ = 'America/Sao_Paulo';
 // ----------------- helpers -----------------
 const parseToUTC = (value) => {
   if (!value) return null;
-  // interpreta horário local de Brasília e converte pra UTC
   const dt = DateTime.fromISO(value, { zone: BR_TZ });
   return dt.isValid ? dt.toUTC().toJSDate() : null;
 };
@@ -33,6 +31,7 @@ const hasOverlap = async ({ clinicId, patientId, startTime, endTime, ignoreId = 
   return count > 0;
 };
 
+// --- Helper CORRIGIDO ---
 const pickUpdateFields = (body) => {
   const {
     patient,
@@ -40,22 +39,29 @@ const pickUpdateFields = (body) => {
     endTime,
     notes,
     status,
+    returnInDays, // <-- Faltava na desestruturação
     sendReminder,
     reminderEnabled,
     remindersSent,
     isReturn,
     originAppointment
   } = body || {};
-  return { patient, startTime, endTime, notes, status, returnInDays, sendReminder, reminderEnabled, remindersSent };
+  
+  // <-- 'originAppointment' e 'returnInDays' adicionados ao retorno
+  return { patient, startTime, endTime, notes, status, returnInDays, sendReminder, reminderEnabled, remindersSent, isReturn, originAppointment }; 
 };
 
 // ---------------------------------------------------------
 // @desc    Criar (agendar) uma nova consulta
+// @route   POST /api/appointments
+// @access  Private
+// --- FUNÇÃO COMPLETA E CORRIGIDA ---
 // ---------------------------------------------------------
 exports.createAppointment = asyncHandler(async (req, res) => {
-  const { patient, startTime, endTime, notes, status, returnInDays, sendReminder, reminderEnabled } = req.body;
+  const { patient, startTime, endTime, notes, status, returnInDays, sendReminder, reminderEnabled, isReturn } = req.body;
   const clinicId = req.clinicId;
 
+  // 2. Validações (como estavam no seu arquivo)
   if (!patient || !startTime || !endTime) {
     return res.status(400).json({ message: 'Paciente, data de início e data de fim são obrigatórios.' });
   }
@@ -73,22 +79,19 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   const ok = await ensurePatientInClinic(patient, clinicId);
   if (!ok) return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
 
-  // Verificação de sobreposição
+  // Verificação de sobreposição (como estava no seu arquivo)
   const overlap = await hasOverlap({ clinicId, patientId: patient, startTime: start, endTime: end });
   if (overlap) return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
 
-  // --- LÓGICA DE BUSCA DA ÚLTIMA CONSULTA (SE FOR RETORNO) ---
   let lastAppointmentId = null;
-
   if (isReturn === true) {
-    // Busca o agendamento anterior mais recente deste paciente na clínica
     const lastAppointment = await Appointment.findOne({
       patient: patient,
       clinic: clinicId,
-      startTime: { $lt: start } // Apenas consultas ANTES da data de início atual
+      startTime: { $lt: start }
     })
-    .sort({ startTime: -1 }) // Ordena para pegar a mais recente
-    .select('_id') // Precisamos apenas do ID
+    .sort({ startTime: -1 })
+    .select('_id') 
     .lean();
 
     if (lastAppointment) {
@@ -97,17 +100,17 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   }
   // --- FIM DA LÓGICA DE BUSCA ---
 
-  // Prepara os dados para criação
   const newAppointmentData = {
     patient,
     startTime: start,
     endTime: end,
     notes,
-    status,
-    returnInDays,
-    sendReminder: !!sendReminder,
+    status, // Usa o status vindo do body (ou default do schema)
+    returnInDays: returnInDays || 0, // Garante que 'returnInDays' está presente
+    isReturn: !!isReturn, // Garante que 'isReturn' é booleano
+    sendReminder: !!sendReminder, // Lógica do outro dev
     clinic: clinicId,
-    // habilitações por offset (se não vier, defaults do schema = false)
+    // Lógica do outro dev (habilitações por offset)
     reminderEnabled: {
       oneDayBefore:     !!reminderEnabled?.oneDayBefore,
       twoHoursBefore:   !!reminderEnabled?.twoHoursBefore,
@@ -115,7 +118,12 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     },
   };
 
-  // --- Log de Auditoria (Criação) ---
+  if (lastAppointmentId) {
+    newAppointmentData.originAppointment = lastAppointmentId;
+  }
+
+  const newAppointment = await Appointment.create(newAppointmentData);
+
   await auditLogService.createLog(
     req.user._id,
     req.clinicId,
@@ -129,7 +137,6 @@ exports.createAppointment = asyncHandler(async (req, res) => {
         { field: 'patient', old: null, new: newAppointment.patient },
         { field: 'startTime', old: null, new: newAppointment.startTime },
         { field: 'isReturn', old: null, new: newAppointment.isReturn },
-        // Loga o novo campo
         { field: 'originAppointment', old: null, new: newAppointment.originAppointment || null },
       ]
     }
