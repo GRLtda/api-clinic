@@ -6,7 +6,7 @@ const { Schema } = mongoose;
 const MESSAGE_TYPES = [
   "APPOINTMENT_3_MINS_BEFORE",
   "APPOINTMENT_1_DAY_BEFORE",
-  "APPOINTMENT_2_DAYS_BEFORE",
+  "APPOINTMENT_2_HOURS_BEFORE",
   "PATIENT_BIRTHDAY", // Dia do Aniversário
   // Adicionar futuros gatilhos aqui (ex: 'RETURN_IN_30_DAYS', 'CONFIRMATION_REQUEST')
 ];

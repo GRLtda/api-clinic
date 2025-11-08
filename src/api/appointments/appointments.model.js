@@ -15,12 +15,23 @@ const appointmentSchema = new Schema(
       enum: ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Não Compareceu'],
       default: 'Agendado',
     },
-    isReturn: { type: Boolean, default: false },
+    returnInDays: { type: Number, default: 0 },
+
+    // Gate global: se false, não envia nenhum lembrete
     sendReminder: { type: Boolean, default: false },
+
+    // Habilitação por offset (escolha quais lembretes quer enviar)
+    reminderEnabled: {
+      oneDayBefore:     { type: Boolean, default: false },
+      twoHoursBefore:   { type: Boolean, default: false },
+      threeMinutesBefore:{ type: Boolean, default: false },
+    },
+
+    // Idempotência por offset (o QUE já foi enviado)
     remindersSent: {
-      oneDayBefore: { type: Boolean, default: false },
-      threeHoursBefore: { type: Boolean, default: false },
-      threeMinutesBefore: { type: Boolean, default: true }, 
+      oneDayBefore:     { type: Boolean, default: false },
+      twoHoursBefore:   { type: Boolean, default: false },
+      threeMinutesBefore:{ type: Boolean, default: false },
     },
   },
   { timestamps: true }
