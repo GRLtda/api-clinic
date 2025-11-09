@@ -40,7 +40,18 @@ exports.logout = (clinicId) => {
   });
 };
 
-exports.sendMessage = (clinicId, to, message) => {
+/**
+ * MODIFICADO: Agora aceita um objeto de opções para botões e rodapé.
+ * @param {string} clinicId - ID da clínica
+ * @param {string} to - Número do destinatário
+ * @param {string} message - Corpo da mensagem
+ * @param {object} [options] - Opções adicionais
+ * @param {string} [options.footer] - Rodapé da mensagem
+ * @param {Array<object>} [options.buttons] - Array de botões (ex: [{id, text}])
+ */
+exports.sendMessage = (clinicId, to, message, options = {}) => {
+  const { footer, buttons } = options;
+
   return requestWithServiceAuth(clinicId, {
     method: 'POST',
     url: '/send-message',
