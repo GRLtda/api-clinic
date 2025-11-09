@@ -18,6 +18,7 @@ const messageSettingsRoutes = require('./api/crm/message-settings.routes');
 const messageLogRoutes = require('./api/crm/logs/message-log.routes');
 const employeeRoutes = require('./api/employees/employees.routes');
 const auditLogRoutes = require('./api/audit/audit-log.routes');
+const adminRoutes = require('./admin/admin.routes');
 
 const app = express();
 
@@ -46,6 +47,8 @@ app.use('/api/crm/templates', messageTemplateRoutes);
 app.use('/api/crm/settings', messageSettingsRoutes);
 app.use('/api/crm/logs', messageLogRoutes);
 app.use('/api/audit', auditLogRoutes);
+
+app.use('/api/admin', adminRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
