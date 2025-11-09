@@ -54,6 +54,15 @@ const anamnesisResponseSchema = new Schema(
       index: true,
     },
     patientAccessTokenExpires: { type: Date },
+
+    sendNotification: {
+      type: Boolean,
+      default: false,
+    },
+    notificationSent: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

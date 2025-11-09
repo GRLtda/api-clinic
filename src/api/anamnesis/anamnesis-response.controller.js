@@ -3,6 +3,8 @@ const asyncHandler = require('../../utils/asyncHandler');
 const AnamnesisResponse = require('./anamnesis-response.model');
 const AnamnesisTemplate = require('./anamnesis-template.model');
 const Patient = require('../patients/patients.model');
+// --- NOVA IMPORTAÇÃO ---
+const { sendAnamnesisNotification } = require('./anamnesis-notification.service'); 
 
 // Helpers
 const ensurePatientInClinic = async (patientId, clinicId) => {
@@ -14,11 +16,12 @@ const ensurePatientInClinic = async (patientId, clinicId) => {
 // @desc    Atribuir uma anamnese a um paciente (gera token se for paciente preencher)
 // @route   POST /patients/:patientId/anamnesis
 // @access  Private (isAuthenticated + requireClinic)
-// Body: { templateId: string, mode?: 'Paciente' | 'Médico', tokenTtlDays?: number }
+// Body: { templateId: string, mode?: 'Paciente' | 'Médico', tokenTtlDays?: number, sendNotification?: boolean } // <-- MODIFICADO
 // -----------------------------------------------------------------------------------
 exports.createAnamnesisForPatient = asyncHandler(async (req, res) => {
   const { patientId } = req.params;
-  const { templateId, mode = 'Paciente', tokenTtlDays = 7 } = req.body || {};
+  // --- sendNotification extraído do body ---
+  const { templateId, mode = 'Paciente', tokenTtlDays = 7, sendNotification = false } = req.body || {};
   const clinicId = req.clinicId;
 
   if (!templateId) {
@@ -43,16 +46,29 @@ exports.createAnamnesisForPatient = asyncHandler(async (req, res) => {
     clinic: clinicId,
     template: templateId,
     status: 'Pendente',
-    answeredBy: mode, // define quem preencherá
+    answeredBy: mode,
+    sendNotification: !!sendNotification,
   });
 
-  // Se o paciente preencherá, geramos token
   if (mode === 'Paciente') {
     const ttlMs = Math.max(parseInt(tokenTtlDays, 10) || 7, 1) * 24 * 60 * 60 * 1000;
     doc.generatePatientToken(ttlMs);
   }
 
   const saved = await doc.save();
+
+  // --- LÓGICA DE ENVIO DE NOTIFICAÇÃO ---
+  if (mode === 'Paciente' && saved.sendNotification && saved.patientAccessToken) {
+    sendAnamnesisNotification(saved).catch(err => {
+        const { captureException } = require('../../utils/sentry');
+        captureException(err, { 
+            tags: { context: 'createAnamnesisNotificationTrigger' },
+            extra: { responseId: saved._id }
+        });
+    });
+  }
+  // --- FIM DA LÓGICA ---
+
   // Retorna o doc; se houver token, ele vem junto
   return res.status(201).json(saved);
 });

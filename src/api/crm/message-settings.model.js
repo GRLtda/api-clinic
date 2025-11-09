@@ -7,7 +7,8 @@ const MESSAGE_TYPES = [
   "APPOINTMENT_3_MINS_BEFORE",
   "APPOINTMENT_1_DAY_BEFORE",
   "APPOINTMENT_2_HOURS_BEFORE",
-  "PATIENT_BIRTHDAY", // Dia do Aniversário
+  "PATIENT_BIRTHDAY",
+  "ANAMNESIS_ASSIGNMENT", 
   // Adicionar futuros gatilhos aqui (ex: 'RETURN_IN_30_DAYS', 'CONFIRMATION_REQUEST')
 ];
 
@@ -30,7 +31,6 @@ const messageSettingSchema = new Schema(
       ref: "MessageTemplate",
       required: true, // Deve ser obrigatório para que a mensagem seja enviada
     },
-    // Flag para ativar ou desativar o envio automático para este tipo de mensagem
     isActive: {
       type: Boolean,
       default: false,
@@ -41,7 +41,6 @@ const messageSettingSchema = new Schema(
   }
 );
 
-// Garante que uma clínica só pode ter uma configuração para cada TIPO de mensagem.
 messageSettingSchema.index({ clinic: 1, type: 1 }, { unique: true });
 
 messageSettingSchema.index({ type: 1, isActive: 1 });
