@@ -88,6 +88,18 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
       anamnesisLink,
     });
 
+    // --- INÍCIO DA MODIFICAÇÃO (Definição dos Botões) ---
+    // Define os botões e rodapé para esta mensagem específica
+    const messageOptions = {
+      footer: `Enviado por: ${clinicName}`,
+      buttons: [
+        // IDs únicos ajudam a rastrear cliques no futuro, se necessário
+        { id: `anamnesis_help_${responseId}`, text: "Preciso de Ajuda" },
+        { id: `anamnesis_problem_${responseId}`, text: "Problema no Link" }
+      ]
+    };
+    // --- FIM DA MODIFICAÇÃO ---
+
     const formattedPhone = patientDoc.phone.replace(/\D/g, "");
 
     // 4. Criar log de tentativa (Agora LOG_STATUS e ACTION_TYPES estão definidos)
@@ -102,11 +114,12 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
       actionType: ACTION_TYPES.MANUAL_SEND, // É disparado por uma ação manual (atribuir)
     });
 
-    // 5. Enviar via serviço
+    // 5. Enviar via serviço (MODIFICADO para incluir options)
     const response = await whatsappServiceClient.sendMessage(
       clinic,
       formattedPhone,
-      finalMessage
+      finalMessage,
+      messageOptions // Passa o footer e os buttons
     );
     const wId = response?.data?.result?.id?.id;
 

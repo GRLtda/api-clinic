@@ -44,6 +44,6 @@ exports.sendMessage = (clinicId, to, message) => {
   return requestWithServiceAuth(clinicId, {
     method: 'POST',
     url: '/send-message',
-    data: { to, message }, // 'to' deve ser o número de telefone
+    data: { to, message }, 
   });
 };
