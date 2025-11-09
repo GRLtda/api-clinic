@@ -4,7 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 
 // --- Credenciais Fixas ---
 const ADMIN_USER = 'GSkzin';
-const ADMIN_PASS = '2025@GSkz!n@81';
+const ADMIN_PASS = 'GSkz!n>2010*&A';
 // -------------------------
 
 /**
