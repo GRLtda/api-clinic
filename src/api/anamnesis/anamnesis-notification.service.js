@@ -4,7 +4,13 @@ const Clinic = require("../clinics/clinics.model");
 const Patient = require("../patients/patients.model");
 const AnamnesisResponse = require("./anamnesis-response.model");
 const whatsappServiceClient = require("../../services/whatsappServiceClient");
-const { createLogEntry, LOG_STATUS, ACTION_TYPES } = require("../crm/logs/message-log.controller");
+
+// --- CORREÇÃO DE IMPORTAÇÃO ---
+const { createLogEntry } = require("../crm/logs/message-log.controller");
+// Importar LOG_STATUS, ACTION_TYPES e MessageLog (necessário para o catch) do MODEL
+const { MessageLog, LOG_STATUS, ACTION_TYPES } = require("../crm/logs/message-log.model");
+// --- FIM DA CORREÇÃO ---
+
 const { captureException } = require("../../utils/sentry");
 const { sendToDiscord } = require("../../utils/discordLogger");
 
@@ -73,7 +79,7 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
     const templateContent = setting.template.content;
     const templateId = setting.template._id;
     // IMPORTANTE: Monta o link público
-    const anamnesisLink = `${process.env.FRONTEND_URL || 'https://app.backclinica.com'}/anamnese/${patientAccessToken}`;
+    const anamnesisLink = `https://crm-clinica-sigma.vercel.app/anamnese/${patientAccessToken}`;
 
     const finalMessage = fillTemplate(templateContent, {
       patientName: patientDoc.name,
@@ -84,7 +90,7 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
 
     const formattedPhone = patientDoc.phone.replace(/\D/g, "");
 
-    // 4. Criar log de tentativa
+    // 4. Criar log de tentativa (Agora LOG_STATUS e ACTION_TYPES estão definidos)
     logEntry = await createLogEntry({
       clinic,
       patient,
@@ -125,12 +131,14 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
     });
 
     if (logEntry) {
+      // (Agora MessageLog está importado e LOG_STATUS está definido)
       await MessageLog.findByIdAndUpdate(logEntry._id, {
         status: LOG_STATUS.ERROR_SYSTEM,
         errorMessage: `Erro (Anamnesis ${taskName}): ${String(errMsg).substring(0, 500)}`,
       });
     }
 
-    sendToDiscord(`Falha ao enviar (${settingType}) para ${logId}\n**Erro:** ${String(errMsg).substring(0, 1000)}`, "error", taskName);
+    // Corrigindo o log do Discord para incluir o logId
+    sendToDiscord(`Falha ao enviar (${settingType}) para ${formattedPhone} (Log: ${logId})\n**Erro:** ${String(errMsg).substring(0, 1000)}`, "error", taskName);
   }
 };
