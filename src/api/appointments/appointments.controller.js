@@ -25,6 +25,7 @@ const hasOverlap = async ({ clinicId, patientId, startTime, endTime, ignoreId = 
     patient: patientId,
     startTime: { $lt: endTime },
     endTime: { $gt: startTime },
+    status: { $ne: 'Cancelado' },
   };
   if (ignoreId) criteria._id = { $ne: ignoreId };
   const count = await Appointment.countDocuments(criteria);
@@ -39,7 +40,7 @@ const pickUpdateFields = (body) => {
     endTime,
     notes,
     status,
-    returnInDays, // <-- Faltava na desestruturação
+    returnInDays,
     sendReminder,
     reminderEnabled,
     remindersSent,
@@ -454,7 +455,6 @@ exports.checkConflict = asyncHandler(async (req, res) => {
     });
   }
 
-  // 2. Conversão de datas (reutilizando seu helper)
   const start = parseToUTC(startTime);
   const end = parseToUTC(endTime);
 
@@ -475,7 +475,6 @@ exports.checkConflict = asyncHandler(async (req, res) => {
     ignoreId: ignoreId || null,
   });
 
-  // 4. Resposta
   if (conflict) {
     return res.status(200).json({ 
       conflict: true, 
