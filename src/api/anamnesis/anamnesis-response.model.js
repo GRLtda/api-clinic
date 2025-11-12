@@ -63,6 +63,11 @@ const anamnesisResponseSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    lgpdConsent: {
+      ipAddress: { type: String },
+      userAgent: { type: String },
+      timestamp: { type: Date },
+    },
   },
   { timestamps: true }
 );

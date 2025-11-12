@@ -182,6 +182,13 @@ exports.submitAnamnesisByPatient = asyncHandler(async (req, res) => {
 
   response.answers = answers;
   response.markFilled('Paciente');
+
+  response.lgpdConsent = {
+    ipAddress: req.ip, // Captura o IP
+    userAgent: req.headers['user-agent'], // Captura o "navegador"
+    timestamp: new Date(), // Captura a data/hora exata
+  };
+
   await response.save();
 
   return res.status(200).json({ message: 'Obrigado por responder!' });
