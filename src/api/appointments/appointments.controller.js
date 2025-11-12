@@ -295,7 +295,7 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
   }
   // --- FIM DA ADIÇÃO ---
 
-  return res.status(200).json(updatedAppointment);
+  return res.status(200).json(newAppointment);
 });
 
 // ---------------------------------------------------------
