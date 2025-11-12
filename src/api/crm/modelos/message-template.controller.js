@@ -6,12 +6,12 @@ const MessageTemplate = require('./message-template.model');
 // VARIÁVEIS SUPORTADAS (Para o frontend saber quais usar)
 // ===================================================================
 exports.SUPPORTED_VARIABLES = [
-    '{ paciente }', 
-    '{ nome_medico }', 
-    '{ clinica }', 
-    '{ data_consulta }', 
-    '{ hora_consulta }',
-    '{ link_anamnese }',
+    '{paciente}', 
+    '{nome_medico}', 
+    '{clinica}', 
+    '{data_consulta}', 
+    '{hora_consulta}',
+    '{link_anamnese}',
 ];
 
 /**
