@@ -7,7 +7,7 @@ const auditLogService = require('../audit/audit-log.service');
 
 // --- Importações de Notificação ---
 const { sendAppointmentConfirmation } = require('./appointment-notification.service');
-const { captureException } = require('../../utils/sentry'); // Necessário para o .catch()
+const { captureException } = require('../../utils/sentry'); 
 
 const BR_TZ = 'America/Sao_Paulo';
 
@@ -36,7 +36,6 @@ const hasOverlap = async ({ clinicId, patientId, startTime, endTime, ignoreId = 
   return count > 0;
 };
 
-// --- Helper CORRIGIDO ---
 const pickUpdateFields = (body) => {
   const {
     patient,
@@ -64,13 +63,12 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   const { patient, startTime, endTime, notes, status, returnInDays, sendReminder, reminderEnabled, isReturn } = req.body;
   const clinicId = req.clinicId;
 
+  // Validações
   if (!patient || !startTime || !endTime) {
     return res.status(400).json({ message: 'Paciente, data de início e data de fim são obrigatórios.' });
   }
-
   const start = parseToUTC(startTime);
   const end = parseToUTC(endTime);
-
   if (!start || !end) {
     return res.status(400).json({ message: 'Datas inválidas. Use formato ISO válido.' });
   }
@@ -84,6 +82,7 @@ exports.createAppointment = asyncHandler(async (req, res) => {
   const overlap = await hasOverlap({ clinicId, patientId: patient, startTime: start, endTime: end });
   if (overlap) return res.status(400).json({ message: 'Conflito de horário: já existe consulta nesse intervalo.' });
 
+  // Lógica de 'isReturn'
   let lastAppointmentId = null;
   if (isReturn === true) {
     const lastAppointment = await Appointment.findOne({
@@ -108,7 +107,7 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     status,
     returnInDays: returnInDays || 0,
     isReturn: !!isReturn,
-    sendReminder: !!sendReminder,
+    sendReminder: !!sendReminder, // <-- Flag principal de notificação
     clinic: clinicId,
     reminderEnabled: {
       oneDayBefore:     !!reminderEnabled?.oneDayBefore,
@@ -121,8 +120,10 @@ exports.createAppointment = asyncHandler(async (req, res) => {
     newAppointmentData.originAppointment = lastAppointmentId;
   }
 
+  // Cria o agendamento
   const newAppointment = await Appointment.create(newAppointmentData);
 
+  // Log de Auditoria
   await auditLogService.createLog(
     req.user._id,
     req.clinicId,
@@ -140,6 +141,20 @@ exports.createAppointment = asyncHandler(async (req, res) => {
       ]
     }
   );
+  // --- Fim do Log ---
+
+  // --- GATILHO DE NOTIFICAÇÃO (NOVO LOCAL) ---
+  // Envia a notificação no momento da criação usando o serviço existente
+  if (newAppointment.sendReminder === true) {
+    // Dispara a notificação, mas não trava a resposta para o usuário
+    sendAppointmentConfirmation(newAppointment).catch(err => {
+      captureException(err, { 
+        tags: { context: 'sendAppointmentCreationTrigger' }, 
+        extra: { appointmentId: newAppointment._id }
+      });
+    });
+  }
+  // --- FIM DA ADIÇÃO ---
 
   return res.status(201).json(newAppointment);
 });
@@ -165,6 +180,7 @@ exports.getAllAppointments = asyncHandler(async (req, res) => {
     endUTC   = eInTZ.toUTC().toJSDate();
   }
 
+  // Atualiza status para 'Não Compareceu'
   const now = new Date();
   const twoHoursInMs = 2 * 60 * 60 * 1000;
   const cutoffTime = new Date(now.getTime() - twoHoursInMs);
@@ -272,30 +288,22 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
     ? 'APPOINTMENT_STATUS_CHANGE' 
     : 'APPOINTMENT_UPDATE';
 
-await auditLogService.createLog(
+  await auditLogService.createLog(
     req.user._id,
     req.clinicId,
-    'APPOINTMENT_CREATE',
+    action,
     'Appointment',
-    newAppointment._id,
+    updatedAppointment._id,
     diffDetails
   );
   // --- Fim do Log ---
 
-// --- INÍCIO DA ADIÇÃO (GATILHO DE CRIAÇÃO) ---
-  if (newAppointment.sendReminder === true) {
-    // Dispara a notificação, mas não trava a resposta para o usuário
-    // Estamos usando o newAppointment que acabamos de criar
-    sendAppointmentConfirmation(newAppointment).catch(err => {
-      captureException(err, { 
-        tags: { context: 'sendAppointmentCreationTrigger' }, // Mudei o contexto do log
-        extra: { appointmentId: newAppointment._id }
-      });
-    });
-  }
-  // --- FIM DA ADIÇÃO ---
+  // --- GATILHO DE NOTIFICAÇÃO (REMOVIDO DAQUI) ---
+  // A lógica de notificação foi movida para o 'createAppointment'
+  // para disparar no momento do agendamento, e não na confirmação.
+  // --- FIM DO GATILHO ---
 
-  return res.status(200).json(newAppointment);
+  return res.status(200).json(updatedAppointment);
 });
 
 // ---------------------------------------------------------
@@ -366,6 +374,7 @@ exports.rescheduleAppointment = asyncHandler(async (req, res) => {
     };
   }
 
+  // Reseta flags de envio de lembrete
   update.remindersSent = { oneDayBefore: false, twoHoursBefore: false, threeMinutesBefore: false };
 
   if (typeof notes === 'string') {
@@ -414,7 +423,7 @@ exports.deleteAppointment = asyncHandler(async (req, res) => {
 
   if (!deletedAppointment) {
     return res.status(404).json({ message: 'Agendamento não encontrado para exclusão.' });
-  }
+á  }
 
   // --- Log de Auditoria (Deleção) ---
   await auditLogService.createLog(
@@ -491,8 +500,9 @@ exports.getAppointmentsByPatient = asyncHandler(async (req, res) => {
   const patientExists = await Patient.exists({ _id: patientId, clinicId });
   if (!patientExists) {
     return res.status(404).json({ message: 'Paciente não encontrado nesta clínica.' });
-A  }
+  }
 
+  // Atualiza status para 'Não Compareceu'
   const now = new Date();
   const twoHoursInMs = 2 * 60 * 60 * 1000;
   const cutoffTime = new Date(now.getTime() - twoHoursInMs);
