@@ -272,12 +272,12 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
     ? 'APPOINTMENT_STATUS_CHANGE' 
     : 'APPOINTMENT_UPDATE';
 
-  await auditLogService.createLog(
+await auditLogService.createLog(
     req.user._id,
     req.clinicId,
-    action,
+    'APPOINTMENT_CREATE',
     'Appointment',
-    updatedAppointment._id,
+    newAppointment._id,
     diffDetails
   );
   // --- Fim do Log ---
