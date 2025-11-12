@@ -282,22 +282,18 @@ exports.updateAppointment = asyncHandler(async (req, res) => {
   );
   // --- Fim do Log ---
 
-  // --- GATILHO DE NOTIFICAÇÃO ---
-  if (
-    statusChanged && 
-    updatedAppointment.status === 'Confirmado' &&
-    updatedAppointment.sendReminder === true 
-  ) {
+// --- INÍCIO DA ADIÇÃO (GATILHO DE CRIAÇÃO) ---
+  if (newAppointment.sendReminder === true) {
     // Dispara a notificação, mas não trava a resposta para o usuário
-    sendAppointmentConfirmation(updatedAppointment).catch(err => {
-      // O serviço 'sendAppointmentConfirmation' já faz o log no Sentry/Discord
+    // Estamos usando o newAppointment que acabamos de criar
+    sendAppointmentConfirmation(newAppointment).catch(err => {
       captureException(err, { 
-        tags: { context: 'sendAppointmentConfirmationTrigger' },
-        extra: { appointmentId: updatedAppointment._id }
+        tags: { context: 'sendAppointmentCreationTrigger' }, // Mudei o contexto do log
+        extra: { appointmentId: newAppointment._id }
       });
     });
-  }
-  // --- FIM DO GATILHO ---
+  }
+  // --- FIM DA ADIÇÃO ---
 
   return res.status(200).json(updatedAppointment);
 });
