@@ -22,10 +22,6 @@ const adminRoutes = require("./admin/admin.routes");
 
 const app = express();
 
-app.use((req, res, next) => {
-  setTimeout(next, 5000);
-});
-
 app.use(cors());
 app.use(express.json());
 
