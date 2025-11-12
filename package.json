@@ -1,4 +1,14 @@
 {
+  "name": "api-clinic",
+  "version": "2.0.0",
+  "description": "API para o sistema de CRM da Clínica AI.",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "dev": "node src/server.js",
+    "test": "node tests/api-test.js",
+    "anamnese-criar": "node scripts/create-anamnesis.js"
+  },
   "dependencies": {
     "@sentry/node": "^10.22.0",
     "@sparticuz/chromium": "^141.0.0",
@@ -28,11 +38,6 @@
     "supertest": "^7.1.4",
     "whatsapp-web.js": "^1.34.1",
     "wwebjs-mongo": "^1.1.0"
-  },
-  "scripts": {
-    "dev": "node src/server.js",
-    "test": "node tests/api-test.js",
-    "anamnese-criar": "node scripts/create-anamnesis.js"
   },
   "devDependencies": {
     "@faker-js/faker": "^10.0.0",
