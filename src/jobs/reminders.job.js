@@ -1,31 +1,8 @@
-// jobs/reminders.job.js
-// -----------------------------------------------------------------------------
-// ADAPTADOR/SHIM DE COMPATIBILIDADE
-//
-// Este arquivo existia com uma lógica própria de varredura (1 dia e 2 horas).
-// Após a refatoração, TODA a regra de janelas/offsets vive em src/jobs/scheduler.service,
-// que é chamada a cada minuto via cron (3min, 1d, 2d) com tolerância.
-// Para evitar duplicidade e disparos em dobro, este módulo passa a delegar
-// para as tasks oficiais via runTask(taskName), preservando a API pública
-// (export { runRemindersSweep }) caso exista algum chamador legado.
-//
-// Se você REALMENTE precisar reativar a antiga varredura de "2 horas", crie
-// uma task oficial APPOINTMENT_2_HOURS_BEFORE no scheduler.service e mapeie
-// o offset lá. Enquanto isso, mantemos apenas 1d e 2d aqui.
-// -----------------------------------------------------------------------------
+
 
 const { runTask } = require("../src/jobs/scheduler.service");
 const { sendToDiscord } = require("../src/utils/discordLogger");
 
-/**
- * Executa as tarefas oficiais de lembrete através do scheduler.service,
- * mantendo compatibilidade com chamadores antigos deste módulo.
- *
- * Obs.: deliberadamente NÃO envia "2 horas" para evitar duplicidade,
- * pois essa janela não existe como task oficial no scheduler atual.
- * Caso precise, padronize criando APPOINTMENT_2_HOURS_BEFORE no scheduler
- * e acrescente abaixo.
- */
 async function runRemindersSweep() {
   const shimTaskGroup = "REMINDERS_SWEEP_SHIM";
   const tasks = [

@@ -32,19 +32,7 @@ const handleTaskError = (error, taskName) => {
 // INICIALIZAÇÃO DO CRON (chama runTask diretamente, in-process)
 // ===================================================================
 exports.startAutoMessageScheduler = () => {
-  console.log("--- Iniciando Agendador de Mensagens Automáticas (In-Process)... ---");
 
-  /**
-   * CRON MINUTÁRIO (robusto a downtime):
-   * Executa as tarefas de lembrete baseadas em OFFSET:
-   *  - APPOINTMENT_3_MINS_BEFORE   (3 minutos antes)
-   *  - APPOINTMENT_2_HOURS_BEFORE  (2 horas antes)
-   *  - APPOINTMENT_1_DAY_BEFORE    (1 dia antes)
-   *
-   * Observação: o cálculo de janela (±2min, configurável) é feito
-   * dentro do scheduler.service. Rodando por minuto, garantimos
-   * que nenhuma consulta dependa de um “disparo diário às 00:00”.
-   */
   cron.schedule("* * * * *", async () => {
     const minuteTasks = [
       "APPOINTMENT_3_MINS_BEFORE",
@@ -52,15 +40,15 @@ exports.startAutoMessageScheduler = () => {
       "APPOINTMENT_1_DAY_BEFORE",
     ];
 
-    console.log(
-      `[SCHEDULER] Tick do minuto — executando tarefas: ${minuteTasks.join(", ")}`
-    );
+    // console.log(
+    //   `[SCHEDULER] Tick do minuto — executando tarefas: ${minuteTasks.join(", ")}`
+    // );
 
     // Dispara todas em paralelo, cada uma com seu próprio tratamento de erro
     const runs = minuteTasks.map(async (taskName) => {
       try {
-        console.log(`[SCHEDULER] Executando tarefa: ${taskName}`);
-        sendToDiscord(`Iniciando tarefa: **${taskName}**`, "info", taskName);
+        // console.log(`[SCHEDULER] Executando tarefa: ${taskName}`);
+        // sendToDiscord(`Iniciando tarefa: **${taskName}**`, "info", taskName);
         await runTask(taskName);
       } catch (err) {
         handleTaskError(err, taskName);
@@ -81,9 +69,9 @@ exports.startAutoMessageScheduler = () => {
     async () => {
       const taskName = "PATIENT_BIRTHDAY";
       try {
-        console.log("[CRON Diário] Iniciando tarefa diária de aniversários...");
-        console.log(`[SCHEDULER] Executando tarefa: ${taskName}`);
-        sendToDiscord(`Iniciando tarefa: **${taskName}**`, "info", taskName);
+        // console.log("[CRON Diário] Iniciando tarefa diária de aniversários...");
+        // console.log(`[SCHEDULER] Executando tarefa: ${taskName}`);
+        // sendToDiscord(`Iniciando tarefa: **${taskName}**`, "info", taskName);
         await runTask(taskName);
       } catch (err) {
         handleTaskError(err, taskName);
