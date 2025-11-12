@@ -12,6 +12,7 @@ exports.SUPPORTED_VARIABLES = [
     '{data_consulta}', 
     '{hora_consulta}',
     '{link_anamnese}',
+    '{primeiro_nome}'
 ];
 
 /**

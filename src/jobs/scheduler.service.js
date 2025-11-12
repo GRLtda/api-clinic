@@ -63,7 +63,11 @@ const TASK_TO_FLAG = {
 // --- Funções auxiliares ---
 const fillTemplate = (templateContent, data) => {
   let content = templateContent || "";
-  content = content.replace(/{ ?paciente ?}/g, data.patientName || "Paciente");
+  const patientFullName = data.patientName || 'Paciente';
+  const patientFirstName = patientFullName.split(' ')[0];
+
+  content = content.replace(/{ ?paciente ?}/g, patientFullName);
+  content = content.replace(/{ ?primeiro_nome ?}/g, patientFirstName);
   content = content.replace(/{ ?clinica ?}/g, data.clinicName || "Clínica");
   content = content.replace(/{ ?nome_medico ?}/g, data.doctorName || "Dr(a).");
   content = content.replace(/{ ?data_consulta ?}/g, data.appointmentDate || "");

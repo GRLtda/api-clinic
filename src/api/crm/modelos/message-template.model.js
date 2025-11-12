@@ -31,7 +31,7 @@ const messageTemplateSchema = new Schema(
     // um campo para futuras expansões/customizações se necessário.
     availableVariables: {
         type: [String],
-        default: ['{ paciente }', '{ nome_medico }', '{ clinica }', '{ data_consulta }', '{ hora_consulta }'],
+        default: ['{ paciente }', '{ nome_medico }', '{ clinica }', '{ data_consulta }', '{ hora_consulta }', '{ primeiro_nome }'],
         immutable: true, // Variáveis fixas por enquanto
     }
   },

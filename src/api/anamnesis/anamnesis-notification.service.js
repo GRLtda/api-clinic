@@ -17,7 +17,11 @@ const { sendToDiscord } = require("../../utils/discordLogger");
 // Helper local para preencher o template (mantendo o padrão de outros serviços)
 const fillTemplate = (templateContent, data) => {
   let content = templateContent || "";
-  content = content.replace(/{ ?paciente ?}/g, data.patientName || "Paciente");
+    const patientFullName = data.patientName || 'Paciente';
+  const patientFirstName = patientFullName.split(' ')[0];
+
+  content = content.replace(/{ ?paciente ?}/g, patientFullName);
+  content = content.replace(/{ ?primeiro_nome ?}/g, patientFirstName);
   content = content.replace(/{ ?clinica ?}/g, data.clinicName || "Clínica");
   content = content.replace(/{ ?nome_medico ?}/g, data.doctorName || "Dr(a).");
   // Variáveis de consulta não se aplicam aqui

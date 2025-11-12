@@ -16,7 +16,11 @@ const BR_TZ = 'America/Sao_Paulo'; // Fuso de Brasília
 // Agora preenche as variáveis de consulta
 const fillTemplate = (templateContent, data) => {
   let content = templateContent || '';
-  content = content.replace(/{ ?paciente ?}/g, data.patientName || 'Paciente');
+  const patientFullName = data.patientName || 'Paciente';
+  const patientFirstName = patientFullName.split(' ')[0];
+
+  content = content.replace(/{ ?paciente ?}/g, patientFullName);
+  content = content.replace(/{ ?primeiro_nome ?}/g, patientFirstName);
   content = content.replace(/{ ?clinica ?}/g, data.clinicName || 'Clínica');
   content = content.replace(/{ ?nome_medico ?}/g, data.doctorName || 'Dr(a).');
   
