@@ -6,14 +6,17 @@ const {
     loginUser, 
     getMe, 
     forgotPassword, 
-    resetPassword 
+    resetPassword,
+    getInvitationDetails
   } = require('./auth.controller');
 const { isAuthenticated, requireClinic } = require('../../middlewares/auth.middleware');
 
+router.get('/verify-invitation/:token', getInvitationDetails);
 router.post('/register', registerUser);
 router.post('/login', loginUser);
-router.get('/me', isAuthenticated, requireClinic, getMe);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);  
+
+router.get('/me', isAuthenticated, requireClinic, getMe);
 
 module.exports = router;

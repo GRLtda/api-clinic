@@ -1,7 +1,8 @@
 const User = require('../users/users.model');
 const Clinic = require('../clinics/clinics.model');
 const EmployeeInvitation = require('../employees/employees.model');
-const PasswordReset = require('./password-reset.model'); // <-- ADICIONAR
+const PasswordReset = require('./password-reset.model');
+const AdminInvitation = require('../../admin/invitations/admin.invitation.model'); 
 const generateToken = require('../../utils/generateToken');
 const asyncHandler = require('../../utils/asyncHandler');
 const { generateResetCode } = require('../../utils/generateResetCode');
@@ -14,54 +15,76 @@ exports.registerUser = asyncHandler(async (req, res) => {
   if (!name || !email || !phone || !password) {
     return res
       .status(400)
-      .json({ message: "Todos os campos são obrigatórios." });
+      .json({ message: 'Todos os campos são obrigatórios.' });
+  }
+
+  if (!invitationToken) {
+    return res
+      .status(403)
+      .json({ message: 'Registro permitido apenas através de um convite válido.' });
   }
 
   const userExists = await User.findOne({ email }).lean();
   if (userExists) {
     return res
       .status(400)
-      .json({ message: "Usuário com este e-mail já existe." });
+      .json({ message: 'Usuário com este e-mail já existe.' });
   }
 
   let userData = { name, email, phone, password };
-  let invitation = null;
 
-  if (invitationToken) {
-    invitation = await EmployeeInvitation.findOne({
-      token: invitationToken,
-      tokenExpires: { $gt: new Date() },
-      status: "pending",
-    });
-
-    if (!invitation || invitation.email.toLowerCase() !== email.toLowerCase()) {
-      return res
-        .status(400)
-        .json({ message: "Token de convite inválido ou expirado." });
-    }
-
-    userData.clinic = invitation.clinic;
-    userData.role = invitation.role;
-  }
-
-  const user = await User.create(userData);
-
-  // Se o registro foi por convite, adiciona o user ao staff da clínica
-  if (invitation) {
-    await Clinic.updateOne(
-      { _id: invitation.clinic },
-      { $addToSet: { staff: user._id } } // $addToSet previne duplicados
-    );
-    invitation.status = "accepted";
-    await invitation.save();
-  }
-
-  return res.status(201).json({
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    token: generateToken(user._id),
+  const employeeInvite = await EmployeeInvitation.findOne({
+    token: invitationToken,
+    tokenExpires: { $gt: new Date() },
+    status: 'pending',
   });
+
+  if (employeeInvite && employeeInvite.email.toLowerCase() === email.toLowerCase()) {
+    userData.clinic = employeeInvite.clinic;
+    userData.role = employeeInvite.role;
+
+    const user = await User.create(userData);
+
+    await Clinic.updateOne(
+      { _id: employeeInvite.clinic },
+      { $addToSet: { staff: user._id } }
+    );
+    
+    employeeInvite.status = 'accepted';
+    await employeeInvite.save();
+
+    return res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      token: generateToken(user._id),
+    });
+  }
+
+  const adminInvite = await AdminInvitation.findOne({
+    token: invitationToken,
+    expiresAt: { $gt: new Date() },
+    status: 'pending',
+  });
+
+  if (adminInvite && adminInvite.email.toLowerCase() === email.toLowerCase()) {
+    const user = await User.create(userData);
+
+    adminInvite.status = 'accepted';
+    await adminInvite.save();
+    
+
+    return res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      token: generateToken(user._id),
+    });
+  }
+
+  return res
+    .status(400)
+    .json({ message: 'Token de convite inválido, expirado ou não corresponde ao e-mail.' });
 });
 
 exports.loginUser = asyncHandler(async (req, res) => {
@@ -233,5 +256,36 @@ exports.resetPassword = asyncHandler(async (req, res) => {
     name: user.name,
     email: user.email,
     token: loginToken,
+  });
+});
+
+/**
+ * @desc    Verifica um token de convite de admin e retorna os dados
+ * @route   GET /api/auth/verify-invitation/:token
+ * @access  Public
+ */
+exports.getInvitationDetails = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+
+  if (!token) {
+    return res.status(400).json({ message: 'Token não fornecido.' });
+  }
+
+  // Encontra o convite de admin (o único que tem 'plan')
+  const invitation = await AdminInvitation.findOne({
+    token: token,
+    status: 'pending',
+    expiresAt: { $gt: new Date() }, // Verifica se não expirou
+  }).select('email phone plan').lean();
+
+  if (!invitation) {
+    return res.status(404).json({ message: 'Convite inválido, expirado ou já utilizado.' });
+  }
+
+  // Retorna os dados para preencher o formulário de registro
+  res.status(200).json({
+    email: invitation.email,
+    phone: invitation.phone,
+    plan: invitation.plan,
   });
 });

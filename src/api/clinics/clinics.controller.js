@@ -3,6 +3,7 @@ const Patient = require('../patients/patients.model');
 const Appointment = require('../appointments/appointments.model');
 const asyncHandler = require('../../utils/asyncHandler');
 const auditLogService = require('../audit/audit-log.service');
+const AdminInvitation = require('../../admin/invitations/admin.invitation.model');
 
 // helpers: whitelists de campos permitidos
 const pickCreateFields = (body) => {
@@ -39,23 +40,33 @@ const pickUpdateFields = (body) => {
 // @access  Private
 exports.createClinic = asyncHandler(async (req, res) => {
   const userId = req.user._id;
+  const userEmail = req.user.email;
 
-  // checa se já existe clínica para o owner
   const existingClinic = await Clinic.findOne({ owner: userId }).select('_id').lean();
   if (existingClinic) {
     return res.status(400).json({ message: 'Este usuário já possui uma clínica configurada.' });
   }
 
-  // impede override de owner pelo body e aplica whitelist
-  const clinicData = { ...pickCreateFields(req.body), owner: userId };
+  const invitation = await AdminInvitation.findOne({
+    email: userEmail,
+    status: 'accepted'
+  }).select('plan').lean();
 
-  // validação mínima de obrigatórios sem mudar contrato de mensagem
+  const clinicPlan = (invitation && invitation.plan) ? invitation.plan : 'basic';
+
+  const clinicDataFromRequest = pickCreateFields(req.body);
+  
+  const clinicData = { 
+    ...clinicDataFromRequest, 
+    owner: userId,
+    plan: clinicPlan
+  };
+
   if (!clinicData.name || !clinicData.responsibleName) {
     return res.status(400).json({ message: 'Nome da clínica e responsável são obrigatórios.' });
   }
 
   const newClinic = await Clinic.create(clinicData);
-  // mantém a mesma resposta: documento da clínica criada
   return res.status(201).json(newClinic);
 });
 
