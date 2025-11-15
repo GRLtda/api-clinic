@@ -207,7 +207,7 @@ const checkAndSendAppointmentReminders = async (taskName) => {
     windowMinutes: DEFAULT_WINDOW_MINUTES,
   });
 
-  console.log(`[SCHEDULER ${taskName}] Janela alvo UTC: ${startUtc.toISOString()} → ${endUtc.toISOString()}`);
+  // console.log(`[SCHEDULER ${taskName}] Janela alvo UTC: ${startUtc.toISOString()} → ${endUtc.toISOString()}`);
 
   const activeSettings = await MessageSetting.find({ type, isActive: true })
     .select("clinic template")
@@ -250,7 +250,7 @@ const checkAndSendAppointmentReminders = async (taskName) => {
 
     if (!appointments?.length) return;
 
-    console.log(`[SCHEDULER ${taskName}] ${appointments.length} agendamentos em ${clinicName}.`);
+    // console.log(`[SCHEDULER ${taskName}] ${appointments.length} agendamentos em ${clinicName}.`);
 
     const sendTasks = appointments.map((appt) => {
       if (!appt.patient?._id || !appt.patient.phone) {
@@ -394,7 +394,7 @@ const checkAndSendBirthdayWishes = async (taskName) => {
   });
 
   await Promise.all(settingProcessing);
-  console.log(`[SCHEDULER ${taskName}] Processamento de aniversários concluído.`);
+  // console.log(`[SCHEDULER ${taskName}] Processamento de aniversários concluído.`);
 };
 
 // --- Função principal ---
@@ -403,7 +403,7 @@ exports.runTask = async (taskName) => {
   await ensurePLimit(taskName);
 
   try {
-    console.log(`[SCHEDULER ${taskName}] Iniciando execução.`);
+    // console.log(`[SCHEDULER ${taskName}] Iniciando execução.`);
     switch (taskName) {
       case "APPOINTMENT_3_MINS_BEFORE":
       case "APPOINTMENT_1_DAY_BEFORE":
@@ -414,11 +414,11 @@ exports.runTask = async (taskName) => {
         await checkAndSendBirthdayWishes(taskName);
         break;
       default:
-        console.warn(`[SCHEDULER ${taskName}] Tarefa desconhecida.`);
+        // console.warn(`[SCHEDULER ${taskName}] Tarefa desconhecida.`);
         sendToDiscord(`Tarefa desconhecida recebida: ${taskName}`, "warn", taskName);
         break;
     }
-    console.log(`[SCHEDULER ${taskName}] Concluída.`);
+    // console.log(`[SCHEDULER ${taskName}] Concluída.`);
   } catch (error) {
     console.error(`[SCHEDULER ${taskName}] Erro:`, error.message);
     captureException(error, {
