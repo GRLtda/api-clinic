@@ -26,7 +26,7 @@ app.use(cors());
 app.use(express.json());
 
 // Rota de teste
-app.get("/", (req, res) => {
+app.get("/api", (req, res) => {
   res.send("API do Sistema de Clínicas no ar!");
 });
 
