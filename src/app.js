@@ -13,6 +13,7 @@ const anamnesisTemplateRoutes = require("./api/anamnesis/anamnesis-template.rout
 const anamnesisResponseRoutes = require("./api/anamnesis/anamnesis-response.routes");
 // --- IMPORTS DO CRM ---
 const crmRoutes = require("./api/crm/conexao/crm.routes");
+const summaryRoutes = require("./api/summary/summary.routes");
 const messageTemplateRoutes = require("./api/crm/modelos/message-template.routes");
 const messageSettingsRoutes = require("./api/crm/message-settings.routes");
 const messageLogRoutes = require("./api/crm/logs/message-log.routes");
@@ -32,6 +33,7 @@ app.get("/api", (req, res) => {
 
 // Rotas da API
 app.use("/api/auth", authRoutes);
+app.use("/api/summary", summaryRoutes);
 app.use("/api/clinics", clinicRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/records", recordsRoutes);

@@ -59,7 +59,7 @@ exports.listEmployees = asyncHandler(async (req, res) => {
   const employeesList = allEmployees.filter(emp => emp && !emp._id.equals(currentUserId));
 
   const pendingInvitations = await EmployeeInvitation.find({ clinic: clinicId, status: 'pending' })
-    .select('email role status createdAt')
+    .select('email role status createdAt token')
     .lean();
 
   res.status(200).json({
