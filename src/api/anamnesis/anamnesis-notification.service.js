@@ -17,7 +17,7 @@ const { sendToDiscord } = require("../../utils/discordLogger");
 // Helper local para preencher o template (mantendo o padrão de outros serviços)
 const fillTemplate = (templateContent, data) => {
   let content = templateContent || "";
-    const patientFullName = data.patientName || 'Paciente';
+  const patientFullName = data.patientName || 'Paciente';
   const patientFirstName = patientFullName.split(' ')[0];
 
   content = content.replace(/{ ?paciente ?}/g, patientFullName);
@@ -63,7 +63,7 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
         populate: { path: "owner", select: "name" },
       })
       .lean();
-    
+
     // Se não houver configuração ativa, não faz nada
     if (!setting || !setting.template?.content || !setting.clinic?.name) {
       sendToDiscord(`Clínica ${clinic} não possui template ativo para ${settingType}.`, "info", taskName);
@@ -125,6 +125,13 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
       finalMessage,
       messageOptions // Passa o footer e os buttons
     );
+
+    // --- FIX: Check status ---
+    if (response.status !== 200) {
+      throw new Error(response.data?.message || 'Erro ao enviar notificação de anamnese (Status diferente de 200).');
+    }
+    // -------------------------
+
     const wId = response?.data?.result?.id?.id;
 
     // 6. Atualizar log com sucesso
@@ -132,7 +139,7 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
       logEntry._id,
       { $set: { status: LOG_STATUS.DELIVERED, wwebjsMessageId: wId || undefined } }
     );
-    
+
     // 7. ATUALIZAR O IDENTIFICADOR (Flag)
     await AnamnesisResponse.updateOne({ _id: responseId }, { notificationSent: true });
 

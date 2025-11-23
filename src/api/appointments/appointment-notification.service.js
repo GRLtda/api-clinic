@@ -22,7 +22,7 @@ const fillTemplate = (templateContent, data) => {
   content = content.replace(/{ ?primeiro_nome ?}/g, patientFirstName);
   content = content.replace(/{ ?clinica ?}/g, data.clinicName || 'Clínica');
   content = content.replace(/{ ?nome_medico ?}/g, data.doctorName || 'Dr(a).');
-  
+
   // Variáveis de consulta
   content = content.replace(/{ ?data_consulta ?}/g, data.dataConsulta || '');
   content = content.replace(/{ ?hora_consulta ?}/g, data.horaConsulta || '');
@@ -41,7 +41,7 @@ exports.sendAppointmentConfirmation = async (appointmentDoc) => {
 
   let logEntry;
   const settingType = GATILHO;
-  const taskName = GATILHO; 
+  const taskName = GATILHO;
 
   try {
     const setting = await MessageSetting.findOne({
@@ -56,7 +56,7 @@ exports.sendAppointmentConfirmation = async (appointmentDoc) => {
         populate: { path: 'owner', select: 'name' },
       })
       .lean();
-    
+
     if (!setting || !setting.template?.content || !setting.clinic?.name) {
       sendToDiscord(`Clínica ${clinic} não possui template ativo para ${settingType}.`, 'info', taskName);
       return;
@@ -76,8 +76,8 @@ exports.sendAppointmentConfirmation = async (appointmentDoc) => {
     const dt = DateTime.fromJSDate(startTime, { zone: 'utc' })
       .setZone(BR_TZ)
       .setLocale('pt-BR');
-    
-    let dataConsulta = dt.toFormat('dd/MM/yyyy (cccc)'); 
+
+    let dataConsulta = dt.toFormat('dd/MM/yyyy (cccc)');
     dataConsulta = dataConsulta.replace(/\((.)/, (match) => match.toUpperCase());
 
     const horaConsulta = dt.toFormat('HH:mm');
@@ -119,13 +119,20 @@ exports.sendAppointmentConfirmation = async (appointmentDoc) => {
       finalMessage,
       messageOptions
     );
+
+    // --- FIX: Check status ---
+    if (response.status !== 200) {
+      throw new Error(response.data?.message || 'Erro ao enviar notificação de agendamento (Status diferente de 200).');
+    }
+    // -------------------------
+
     const wId = response?.data?.result?.id?.id;
 
     await MessageLog.findByIdAndUpdate(
       logEntry._id,
       { $set: { status: LOG_STATUS.DELIVERED, wwebjsMessageId: wId || undefined } }
     );
-    
+
     sendToDiscord(`Notificação de Confirmação (${settingType}) enviada para ${formattedPhone}`, 'success', taskName);
 
   } catch (error) {

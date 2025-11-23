@@ -168,9 +168,13 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
       number,
       message,
     );
+
+    if (response.status !== 200) {
+      throw new Error(response.data?.message || 'Erro ao enviar mensagem (Status diferente de 200).');
+    }
+
     const responseData = response.data;
 
-    // ... (lógica de atualização de log permanece a mesma) ...
     let finalStatus = LOG_STATUS.DELIVERED;
     let messageId = responseData.result?.id?.id || responseData.result?.id || null;
 
@@ -254,6 +258,13 @@ exports.sendTestMessage = expressAsyncHandler(async (req, res) => {
 
     // 4. Envia a mensagem via serviço dedicado
     const response = await whatsappServiceClient.sendMessage(clinicId, data.patient.phone, testMessageContent);
+
+    // --- FIX: Check status ---
+    if (response.status !== 200) {
+      throw new Error(response.data?.message || 'Erro ao enviar mensagem de teste (Status diferente de 200).');
+    }
+    // -------------------------
+
     const responseData = response.data;
 
     // --- LÓGICA DE ATUALIZAÇÃO DO LOG (MODIFICADA) ---

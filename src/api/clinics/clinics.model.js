@@ -8,7 +8,7 @@ const workingHoursSchema = new Schema(
   {
     day: { type: String, enum: dayEnum, required: true },
     startTime: { type: String, trim: true, match: [/^\d{2}:\d{2}$/, 'Formato HH:mm inválido'], required: true },
-    endTime:   { type: String, trim: true, match: [/^\d{2}:\d{2}$/, 'Formato HH:mm inválido'], required: true },
+    endTime: { type: String, trim: true, match: [/^\d{2}:\d{2}$/, 'Formato HH:mm inválido'], required: true },
     isOpen: { type: Boolean, default: true },
   },
   { _id: false }
@@ -48,6 +48,7 @@ const clinicSchema = new Schema(
     address: addressSchema,
     workingHours: { type: [workingHoursSchema], default: void 0 },
     allowAppointmentsOutsideWorkingHours: { type: Boolean, default: false },
+    whatsappSessionId: { type: String, trim: true }, // Armazena o ID da sessão do ZAP
     plan: {
       type: String,
       enum: ['basic', 'premium', 'enterprise'],
