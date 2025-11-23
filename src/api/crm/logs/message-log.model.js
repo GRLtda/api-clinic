@@ -6,15 +6,18 @@ const { Schema } = mongoose;
 const MessageSetting = require("../message-settings.model");
 
 // Status que a mensagem pode ter
-const LOG_STATUS = [
-  "PENDING", // Mensagem na fila de envio (não implementada ainda, mas útil)
-  "PENDING_CONNECTION", // Mensagem aguardando conexão do WhatsApp para ser enviada
-  "SENT_ATTEMPT", // Tentativa de envio (antes de receber a confirmação do WhatsApp)
-  "DELIVERED", // Entregue (Confirmação do WhatsApp)
-  "READ", // Lida (Confirmação do WhatsApp)
-  "ERROR_WHATSAPP", // Erro retornado pelo WhatsApp (ex: número inválido, desconectado)
-  "ERROR_SYSTEM", // Erro interno do nosso sistema (ex: falha ao montar o template)
-];
+// Status que a mensagem pode ter
+const LOG_STATUS = {
+  PENDING: "PENDING", // Mensagem na fila de envio (não implementada ainda, mas útil)
+  PENDING_CONNECTION: "PENDING_CONNECTION", // Mensagem aguardando conexão do WhatsApp para ser enviada
+  SENT_ATTEMPT: "SENT_ATTEMPT", // Tentativa de envio (antes de receber a confirmação do WhatsApp)
+  DELIVERED: "DELIVERED", // Entregue (Confirmação do WhatsApp)
+  READ: "READ", // Lida (Confirmação do WhatsApp)
+  ERROR_WHATSAPP: "ERROR_WHATSAPP", // Erro retornado pelo WhatsApp (ex: número inválido, desconectado)
+  ERROR_SYSTEM: "ERROR_SYSTEM", // Erro interno do nosso sistema (ex: falha ao montar o template)
+};
+
+const LOG_STATUS_ARRAY = Object.values(LOG_STATUS);
 
 // Tipo de Ação (Para diferenciar logs automáticos de logs manuais)
 const ACTION_TYPES = [
@@ -60,8 +63,8 @@ const messageLogSchema = new Schema(
     // Status atual da entrega
     status: {
       type: String,
-      enum: LOG_STATUS,
-      default: "SENT_ATTEMPT",
+      enum: LOG_STATUS_ARRAY,
+      default: LOG_STATUS.SENT_ATTEMPT,
       required: true,
     },
     // Tipo de ação (Manual ou Automática)
@@ -96,5 +99,6 @@ const MessageLog = mongoose.model("MessageLog", messageLogSchema);
 module.exports = {
   MessageLog,
   LOG_STATUS,
+  LOG_STATUS_ARRAY,
   ACTION_TYPES,
 };

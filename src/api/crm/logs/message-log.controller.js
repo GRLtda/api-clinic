@@ -1,6 +1,6 @@
 // src/api/crm/logs/message-log.controller.js
 const expressAsyncHandler = require('express-async-handler');
-const { MessageLog, LOG_STATUS, ACTION_TYPES } = require('./message-log.model');
+const { MessageLog, LOG_STATUS, LOG_STATUS_ARRAY, ACTION_TYPES } = require('./message-log.model');
 // Note: O MessageSetting.schema.path('type').enumValues deve ser importado
 // para o Model, mas não é necessário aqui.
 
@@ -10,14 +10,14 @@ const { MessageLog, LOG_STATUS, ACTION_TYPES } = require('./message-log.model');
  * @param {object} data - Dados do log
  */
 exports.createLogEntry = async (data) => {
-    try {
-        const newLog = await MessageLog.create(data);
-        return newLog;
-    } catch (error) {
-        console.error('ERRO AO CRIAR LOG DE MENSAGEM:', error.message);
-        // Não jogamos o erro adiante para não interromper o envio real da mensagem.
-        return null;
-    }
+  try {
+    const newLog = await MessageLog.create(data);
+    return newLog;
+  } catch (error) {
+    console.error('ERRO AO CRIAR LOG DE MENSAGEM:', error.message);
+    // Não jogamos o erro adiante para não interromper o envio real da mensagem.
+    return null;
+  }
 };
 
 /**
@@ -28,7 +28,7 @@ exports.createLogEntry = async (data) => {
 exports.getAllLogs = expressAsyncHandler(async (req, res) => {
   const { status, patientId, limit = 50, page = 1 } = req.query;
   const clinicId = req.clinicId;
-  
+
   const query = { clinic: clinicId };
 
   if (status) {
@@ -54,7 +54,7 @@ exports.getAllLogs = expressAsyncHandler(async (req, res) => {
     page: parseInt(page),
     limit: parseInt(limit),
     logs,
-    availableStatus: LOG_STATUS, // Retorna os status disponíveis para o frontend filtrar
+    availableStatus: LOG_STATUS_ARRAY, // Retorna os status disponíveis para o frontend filtrar
   });
 });
 
@@ -65,5 +65,5 @@ exports.getAllLogs = expressAsyncHandler(async (req, res) => {
  * @access  Private (Requer clínica)
  */
 exports.getAvailableLogStatus = (req, res) => {
-    res.status(200).json({ logStatus: LOG_STATUS, actionTypes: ACTION_TYPES });
+  res.status(200).json({ logStatus: LOG_STATUS_ARRAY, actionTypes: ACTION_TYPES });
 };

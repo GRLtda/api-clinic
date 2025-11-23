@@ -164,8 +164,8 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
 
     // 2. Chamar o serviço WhatsApp (MODIFICADO)
     const response = await whatsappServiceClient.sendMessage(
-      clinicId, 
-      number, 
+      clinicId,
+      number,
       message,
     );
     const responseData = response.data;
@@ -173,9 +173,13 @@ exports.sendMessageToPatient = expressAsyncHandler(async (req, res) => {
     // ... (lógica de atualização de log permanece a mesma) ...
     let finalStatus = LOG_STATUS.DELIVERED;
     let messageId = responseData.result?.id?.id || responseData.result?.id || null;
+
     if (responseData.message === "Mensagem enviada para a fila.") {
       finalStatus = LOG_STATUS.PENDING;
+    } else if (responseData.message === 'Mensagem enviada com sucesso (sem nono dígito).' || responseData.message === 'Mensagem enviada com sucesso.') {
+      finalStatus = LOG_STATUS.DELIVERED;
     }
+
     await MessageLog.findByIdAndUpdate(logEntry._id, {
       status: finalStatus,
       wwebjsMessageId: messageId,
@@ -227,12 +231,12 @@ exports.sendTestMessage = expressAsyncHandler(async (req, res) => {
 
     // 2. Prepara a mensagem
     const finalMessage = fillTemplate(template.content, {
-        patientName: data.patient.name,
-        clinicName: data.clinic.name,
-        doctorName: data.doctor.name,
-        appointmentDate: data.nextAppointment ? formatDate(data.nextAppointment.startTime) : "N/A",
-        appointmentTime: data.nextAppointment ? formatTime(data.nextAppointment.startTime) : "N/A",
-        anamnesisLink: "" // Adicionar lógica se aplicável
+      patientName: data.patient.name,
+      clinicName: data.clinic.name,
+      doctorName: data.doctor.name,
+      appointmentDate: data.nextAppointment ? formatDate(data.nextAppointment.startTime) : "N/A",
+      appointmentTime: data.nextAppointment ? formatTime(data.nextAppointment.startTime) : "N/A",
+      anamnesisLink: "" // Adicionar lógica se aplicável
     });
     const testMessageContent = `[TESTE] ${finalMessage}`;
 
@@ -258,6 +262,8 @@ exports.sendTestMessage = expressAsyncHandler(async (req, res) => {
 
     if (responseData.message === "Mensagem enviada para a fila.") {
       finalStatus = LOG_STATUS.PENDING; //
+    } else if (responseData.message === 'Mensagem enviada com sucesso (sem nono dígito).' || responseData.message === 'Mensagem enviada com sucesso.') {
+      finalStatus = LOG_STATUS.DELIVERED;
     }
     // --- FIM DA MODIFICAÇÃO ---
 
