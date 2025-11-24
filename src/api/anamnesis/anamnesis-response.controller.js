@@ -289,6 +289,7 @@ exports.getPendingAnamneses = asyncHandler(async (req, res) => {
 
     return {
       _id: item._id,
+      patientId: item.patient?._id,
       patientName: item.patient?.name || 'N/A',
       patientPhone: item.patient?.phone || 'N/A',
       anamnesisLink,
