@@ -4,7 +4,7 @@ const AnamnesisResponse = require('./anamnesis-response.model');
 const AnamnesisTemplate = require('./anamnesis-template.model');
 const Patient = require('../patients/patients.model');
 // --- NOVA IMPORTAÇÃO ---
-const { sendAnamnesisNotification } = require('./anamnesis-notification.service'); 
+const { sendAnamnesisNotification } = require('./anamnesis-notification.service');
 
 // Helpers
 const ensurePatientInClinic = async (patientId, clinicId) => {
@@ -60,11 +60,11 @@ exports.createAnamnesisForPatient = asyncHandler(async (req, res) => {
   // --- LÓGICA DE ENVIO DE NOTIFICAÇÃO ---
   if (mode === 'Paciente' && saved.sendNotification && saved.patientAccessToken) {
     sendAnamnesisNotification(saved).catch(err => {
-        const { captureException } = require('../../utils/sentry');
-        captureException(err, { 
-            tags: { context: 'createAnamnesisNotificationTrigger' },
-            extra: { responseId: saved._id }
-        });
+      const { captureException } = require('../../utils/sentry');
+      captureException(err, {
+        tags: { context: 'createAnamnesisNotificationTrigger' },
+        extra: { responseId: saved._id }
+      });
     });
   }
   // --- FIM DA LÓGICA ---
@@ -250,5 +250,61 @@ exports.getAnamnesisForPatientByToken = asyncHandler(async (req, res) => {
     ...rest,
     patientInfo,
     clinicInfo, // Adiciona a informação da clínica
+  });
+});
+
+// -----------------------------------------------------------------------------------
+// @desc    Listar todas as anamneses pendentes da clínica
+// @route   GET /anamnesis/pending?page=&limit=
+// @access  Private (isAuthenticated + requireClinic)
+// -----------------------------------------------------------------------------------
+exports.getPendingAnamneses = asyncHandler(async (req, res) => {
+  const clinicId = req.clinicId;
+
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const skip = (page - 1) * limit;
+
+  const filter = {
+    clinic: clinicId,
+    status: 'Pendente'
+  };
+
+  const [total, items] = await Promise.all([
+    AnamnesisResponse.countDocuments(filter),
+    AnamnesisResponse.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('patient', 'name phone')
+      .populate('template', 'name')
+      .lean(),
+  ]);
+
+  // Formatar os dados para incluir todas as informações solicitadas
+  const formattedItems = items.map(item => {
+    const anamnesisLink = item.patientAccessToken
+      ? `https://crm-clinica-sigma.vercel.app/anamnese/${item.patientAccessToken}`
+      : null;
+
+    return {
+      _id: item._id,
+      patientName: item.patient?.name || 'N/A',
+      patientPhone: item.patient?.phone || 'N/A',
+      anamnesisLink,
+      expirationDate: item.patientAccessTokenExpires,
+      assignedDate: item.createdAt,
+      whatsappNotified: item.notificationSent || false,
+      templateName: item.template?.name || 'N/A',
+      status: item.status,
+    };
+  });
+
+  return res.status(200).json({
+    total,
+    page,
+    pages: Math.ceil(total / limit) || 1,
+    limit,
+    data: formattedItems,
   });
 });

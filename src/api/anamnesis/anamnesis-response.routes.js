@@ -14,6 +14,9 @@ router.get('/patients/:patientId/anamnesis', isAuthenticated, requireClinic, con
 // ROTA NOVA: Médico salva/submete as respostas de uma anamnese
 router.put('/patients/:patientId/anamnesis/:responseId', isAuthenticated, requireClinic, controller.submitAnamnesisByDoctor);
 
+// ROTA NOVA: Listar todas as anamneses pendentes da clínica
+router.get('/anamnesis/pending', isAuthenticated, requireClinic, controller.getPendingAnamneses);
+
 
 // --- ROTA PÚBLICA (para o paciente com o link) ---
 

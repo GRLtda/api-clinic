@@ -8,7 +8,7 @@ const { nanoid } = require('nanoid');
 // Trocamos 'questionTitle' por 'qId' como chave principal
 const answerSchema = new Schema(
   {
-    qId: { type: String, required: true, index: true }, 
+    qId: { type: String, required: true, index: true },
     questionTitle: { type: String, required: true, trim: true },
     answer: { type: Schema.Types.Mixed, required: true },
   },
@@ -67,7 +67,7 @@ const anamnesisResponseSchema = new Schema(
       ipAddress: { type: String },
       userAgent: { type: String },
       timestamp: { type: Date },
-    },
+    },
   },
   { timestamps: true }
 );
