@@ -27,30 +27,30 @@ app.use(cors());
 app.use(express.json());
 
 // Rota de teste
-app.get("/api", (req, res) => {
+app.get("/", (req, res) => {
   res.send("API do Sistema de Clínicas no ar!");
 });
 
 // Rotas da API
-app.use("/api/auth", authRoutes);
-app.use("/api/summary", summaryRoutes);
-app.use("/api/clinics", clinicRoutes);
-app.use("/api/patients", patientRoutes);
-app.use("/api/records", recordsRoutes);
-app.use("/api/appointments", appointmentRoutes);
-app.use("/api/anamnesis-templates", anamnesisTemplateRoutes);
-app.use("/api", anamnesisResponseRoutes);
-app.use("/api/uploads", uploadRoutes);
-app.use("/api/employees", employeeRoutes);
+app.use("/auth", authRoutes);
+app.use("/summary", summaryRoutes);
+app.use("/clinics", clinicRoutes);
+app.use("/patients", patientRoutes);
+app.use("/records", recordsRoutes);
+app.use("/appointments", appointmentRoutes);
+app.use("/anamnesis-templates", anamnesisTemplateRoutes);
+app.use("/", anamnesisResponseRoutes);
+app.use("/uploads", uploadRoutes);
+app.use("/employees", employeeRoutes);
 
 // Rotas de CRM
-app.use("/api/crm", crmRoutes);
-app.use("/api/crm/templates", messageTemplateRoutes);
-app.use("/api/crm/settings", messageSettingsRoutes);
-app.use("/api/crm/logs", messageLogRoutes);
-app.use("/api/audit", auditLogRoutes);
+app.use("/crm", crmRoutes);
+app.use("/crm/templates", messageTemplateRoutes);
+app.use("/crm/settings", messageSettingsRoutes);
+app.use("/crm/logs", messageLogRoutes);
+app.use("/audit", auditLogRoutes);
 
-app.use("/api/admin", adminRoutes);
+app.use("/admin", adminRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
