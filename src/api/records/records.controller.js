@@ -39,20 +39,49 @@ exports.getRecordByAppointmentId = asyncHandler(async (req, res) => {
   const { appointmentId } = req.params;
   const clinicId = req.clinicId;
 
+  console.log('[DEBUG] getRecordByAppointmentId - Início');
+  console.log('[DEBUG] appointmentId recebido:', appointmentId);
+  console.log('[DEBUG] appointmentId tipo:', typeof appointmentId);
+  console.log('[DEBUG] clinicId:', clinicId);
+
+  // Validar se appointmentId é um ObjectId válido
+  if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+    console.log('[DEBUG] appointmentId inválido - não é um ObjectId válido');
+    return res.status(400).json({
+      message: 'ID de agendamento inválido.'
+    });
+  }
+
+  // Converter explicitamente para ObjectId
+  const appointmentObjectId = new mongoose.Types.ObjectId(appointmentId);
+  console.log('[DEBUG] appointmentId convertido para ObjectId:', appointmentObjectId);
+
   // Busca o prontuário que corresponde ao agendamento e à clínica
+  console.log('[DEBUG] Iniciando busca no banco de dados...');
+  console.log('[DEBUG] Query:', { appointment: appointmentObjectId, clinic: clinicId });
+
   const record = await MedicalRecordEntry.findOne({
-    appointment: appointmentId,
+    appointment: appointmentObjectId,
     clinic: clinicId,
   })
     .populate('attachments', 'url fileType uploadedBy createdAt attachments') // Popula anexos, se houver
     .lean();
 
+  console.log('[DEBUG] Resultado da busca:', record ? 'Registro encontrado' : 'Nenhum registro encontrado');
+  if (record) {
+    console.log('[DEBUG] Record ID:', record._id);
+    console.log('[DEBUG] Record appointment:', record.appointment);
+    console.log('[DEBUG] Record clinic:', record.clinic);
+  }
+
   // Se não encontrar, retorna 404
   if (!record) {
+    console.log('[DEBUG] Retornando 404 - Prontuário não encontrado');
     return res.status(404).json({ message: 'Nenhum registro de prontuário encontrado para este agendamento.' });
   }
 
   // Se encontrar, retorna o registro
+  console.log('[DEBUG] Retornando prontuário encontrado');
   return res.status(200).json(record);
 });
 
