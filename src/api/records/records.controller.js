@@ -106,14 +106,6 @@ exports.getRecordByAppointmentId = asyncHandler(async (req, res) => {
     console.log('[DEBUG] Record clinic:', record.clinic);
   }
 
-  // Se não encontrar, retorna 404
-  if (!record) {
-    console.log('[DEBUG] Retornando 404 - Prontuário não encontrado');
-    return res.status(404).json({ message: 'Nenhum registro de prontuário encontrado para este agendamento.' });
-  }
-
-  // Se encontrar, retorna o registro
-  console.log('[DEBUG] Retornando prontuário encontrado');
   return res.status(200).json(record);
 });
 
