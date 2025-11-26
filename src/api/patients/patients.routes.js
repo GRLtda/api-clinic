@@ -16,4 +16,6 @@ router.get('/:id', patientController.getPatientById);
 router.put('/:id', patientController.updatePatient);
 router.delete('/:id', patientController.deletePatient);
 
+router.get('/birthdays/month', patientController.getBirthdaysOfMonth);
+
 module.exports = router;

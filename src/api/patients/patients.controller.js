@@ -6,27 +6,27 @@ const auditLogService = require('../audit/audit-log.service');
 
 // Helpers
 const pickCreateFields = (body) => {
-  const { name, email, gender, birthDate, phone, cpf, address } = body || {}; 
+  const { name, email, gender, birthDate, phone, cpf, address } = body || {};
   return { name, email, gender, birthDate, phone, cpf, address };
 };
 const pickUpdateFields = (body) => {
-  const { name, email, gender, birthDate, phone, cpf, address } = body || {}; 
+  const { name, email, gender, birthDate, phone, cpf, address } = body || {};
   return { name, email, gender, birthDate, phone, cpf, address };
 };
 // Campos que queremos rastrear no log de update
 const fieldsToTrack = [
-  'name', 
-  'email', 
-  'gender', 
-  'birthDate', 
-  'phone', 
-  'cpf', 
-  'address.cep', 
-  'address.street', 
-  'address.number', 
-  'address.district', 
+  'name',
+  'email',
+  'gender',
+  'birthDate',
+  'phone',
+  'cpf',
+  'address.cep',
+  'address.street',
+  'address.number',
+  'address.district',
   'address.complement',
-  'address.city', 
+  'address.city',
   'address.state'
 ];
 
@@ -225,4 +225,60 @@ exports.deletePatient = asyncHandler(async (req, res) => {
   // --- Fim do Log ---
 
   return res.status(204).send();
+});
+
+// -----------------------------------------------------------------------------------
+// @desc    Listar aniversariantes do mês atual
+// @route   GET /patients/birthdays/month?page=&limit=
+// @access  Private (isAuthenticated + requireClinic)
+// -----------------------------------------------------------------------------------
+exports.getBirthdaysOfMonth = asyncHandler(async (req, res) => {
+  const clinicId = req.clinicId;
+
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const skip = (page - 1) * limit;
+
+  const currentMonth = new Date().getMonth() + 1;
+
+  const baseFilter = {
+    clinicId,
+    ...notDeleted,
+  };
+
+  const allPatients = await Patient.find(baseFilter).lean();
+
+  const birthdayPatients = allPatients.filter(patient => {
+    if (!patient.birthDate) return false;
+    const birthMonth = new Date(patient.birthDate).getMonth() + 1;
+    return birthMonth === currentMonth;
+  });
+
+  birthdayPatients.sort((a, b) => {
+    const dayA = new Date(a.birthDate).getDate();
+    const dayB = new Date(b.birthDate).getDate();
+    return dayA - dayB;
+  });
+
+  const total = birthdayPatients.length;
+  const paginatedPatients = birthdayPatients.slice(skip, skip + limit);
+
+  const formattedPatients = paginatedPatients.map(patient => ({
+    patientId: patient._id,
+    name: patient.name,
+    birthDate: patient.birthDate,
+    phone: patient.phone || 'N/A',
+    email: patient.email || 'N/A',
+    gender: patient.gender || 'N/A',
+    cpf: patient.cpf || 'N/A',
+    address: patient.address || null,
+  }));
+
+  return res.status(200).json({
+    total,
+    page,
+    pages: Math.ceil(total / limit) || 1,
+    limit,
+    data: formattedPatients,
+  });
 });
