@@ -62,11 +62,11 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
       clinic: clinicId,
       status: 'Preenchido'
     })
-    .sort({ updatedAt: -1 })
-    .limit(5)
-    .populate('patient', 'name')
-    .populate('template', 'name')
-    .lean(),
+      .sort({ updatedAt: -1 })
+      .limit(5)
+      .populate('patient', 'name')
+      .populate('template', 'name')
+      .lean(),
 
     // FEED: Próximos Agendamentos (Avisos imediatos)
     Appointment.find({
@@ -74,20 +74,20 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
       startTime: { $gte: now },
       status: { $in: ['Agendado', 'Confirmado'] }
     })
-    .sort({ startTime: 1 })
-    .limit(5)
-    .populate('patient', 'name')
-    .lean(),
+      .sort({ startTime: 1 })
+      .limit(5)
+      .populate('patient', 'name')
+      .lean(),
 
     // FEED: Novos Pacientes Cadastrados
     Patient.find({
       clinicId: clinicId,
       deletedAt: { $exists: false }
     })
-    .sort({ createdAt: -1 })
-    .limit(5)
-    .select('name createdAt')
-    .lean()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('name createdAt')
+      .lean()
   ]);
 
   // --- 2. Construção do "Feed de Atualizações" unificado ---
@@ -109,10 +109,10 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
   upcomingAppointments.forEach(item => {
     const time = DateTime.fromJSDate(item.startTime).setZone(BR_TZ).toFormat('HH:mm');
     const date = DateTime.fromJSDate(item.startTime).setZone(BR_TZ).toFormat('dd/MM');
-    
+
     feed.push({
       type: 'UPCOMING_APPOINTMENT',
-      title: 'Próxima Consulta',
+      title: 'Consulta Agendada',
       description: `${item.patient?.name} - ${date} às ${time}`,
       date: item.startTime,
       id: item._id,
@@ -138,7 +138,7 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
 
   // --- 3. Montar objeto de Avisos/Alertas ---
   const alerts = [];
-  
+
   if (pendingAnamnesisCount > 0) {
     alerts.push({
       level: 'warning',
