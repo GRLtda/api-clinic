@@ -56,6 +56,38 @@ exports.getRecordByAppointmentId = asyncHandler(async (req, res) => {
   const appointmentObjectId = new mongoose.Types.ObjectId(appointmentId);
   console.log('[DEBUG] appointmentId convertido para ObjectId:', appointmentObjectId);
 
+  // 🔍 DEBUG ADICIONAL: Verificar o que existe no banco
+  console.log('[DEBUG] === VERIFICANDO REGISTROS NO BANCO ===');
+
+  // Buscar TODOS os registros desta clínica
+  const allRecordsForClinic = await MedicalRecordEntry.find({ clinic: clinicId })
+    .select('_id appointment patient createdAt')
+    .limit(10)
+    .lean();
+  console.log('[DEBUG] Total de registros encontrados para esta clínica (max 10):', allRecordsForClinic.length);
+  allRecordsForClinic.forEach((rec, idx) => {
+    console.log(`[DEBUG] Registro ${idx + 1}:`, {
+      _id: rec._id,
+      appointment: rec.appointment,
+      appointmentType: typeof rec.appointment,
+      patient: rec.patient,
+      createdAt: rec.createdAt
+    });
+  });
+
+  // Buscar registros SEM filtro de appointment
+  const recordsWithoutAppointmentFilter = await MedicalRecordEntry.find({
+    clinic: clinicId
+  })
+    .select('_id appointment')
+    .lean();
+  console.log('[DEBUG] Registros que têm appointment definido:',
+    recordsWithoutAppointmentFilter.filter(r => r.appointment).length
+  );
+  console.log('[DEBUG] Registros que NÃO têm appointment (null/undefined):',
+    recordsWithoutAppointmentFilter.filter(r => !r.appointment).length
+  );
+
   // Busca o prontuário que corresponde ao agendamento e à clínica
   console.log('[DEBUG] Iniciando busca no banco de dados...');
   console.log('[DEBUG] Query:', { appointment: appointmentObjectId, clinic: clinicId });
