@@ -83,7 +83,7 @@ exports.sendAnamnesisNotification = async (anamnesisResponseDoc) => {
     const templateContent = setting.template.content;
     const templateId = setting.template._id;
     // IMPORTANTE: Monta o link público
-    const anamnesisLink = `https://www.agendadoutor.com/anamnese/${patientAccessToken}`;
+    const anamnesisLink = `www.agendadoutor.com/anamnese/${patientAccessToken}`;
 
     const finalMessage = fillTemplate(templateContent, {
       patientName: patientDoc.name,

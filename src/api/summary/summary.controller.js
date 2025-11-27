@@ -21,12 +21,16 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
   const startOfDay = DateTime.now().setZone(BR_TZ).startOf('day').toUTC().toJSDate();
   const endOfDay = DateTime.now().setZone(BR_TZ).endOf('day').toUTC().toJSDate();
 
+  // Data limite para anamneses expirando (2 dias a partir de agora)
+  const twoDaysFromNow = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+
   // --- 1. Executar contagens e buscas em paralelo ---
   const [
     pendingAnamnesisCount,
+    expiringAnamnesisCount, // <--- NOVO: Anamneses expirando em menos de 2 dias
     appointmentsTodayCount,
     totalPatientsCount,
-    birthdaysMonthCount, // <--- NOVO KPI
+    birthdaysMonthCount,
     recentAnamneses,
     upcomingAppointments,
     newPatients
@@ -35,6 +39,16 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
     AnamnesisResponse.countDocuments({
       clinic: clinicId,
       status: 'Pendente'
+    }),
+
+    // KPI: Anamneses Pendentes que expiram em menos de 2 dias
+    AnamnesisResponse.countDocuments({
+      clinic: clinicId,
+      status: 'Pendente',
+      patientAccessTokenExpires: {
+        $exists: true,
+        $lte: twoDaysFromNow
+      }
     }),
 
     // KPI: Agendamentos Hoje (que não foram cancelados)
@@ -50,11 +64,11 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
       deletedAt: { $exists: false }
     }),
 
-    // KPI: Aniversariantes do Mês (NOVO)
+    // KPI: Aniversariantes do Mês
     Patient.countDocuments({
       clinicId: clinicId,
       deletedAt: { $exists: false },
-      $expr: { $eq: [{ $month: '$birthDate' }, currentMonth] } // Compara apenas o mês
+      $expr: { $eq: [{ $month: '$birthDate' }, currentMonth] }
     }),
 
     // FEED: Últimas Anamneses Respondidas (Preenchidas)
@@ -146,10 +160,18 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
     });
   }
 
+  // NOVO: Alerta para anamneses expirando em menos de 2 dias
+  if (expiringAnamnesisCount > 0) {
+    alerts.push({
+      level: 'danger',
+      message: `${expiringAnamnesisCount} anamnese(s) pendente(s) expiram em menos de 2 dias!`
+    });
+  }
+
   if (birthdaysMonthCount > 0) {
     alerts.push({
       level: 'info',
-      message: `🎉 ${birthdaysMonthCount} paciente(s) fazem aniversário este mês!`
+      message: `${birthdaysMonthCount} paciente(s) fazem aniversário este mês!`
     });
   }
 
@@ -157,9 +179,10 @@ exports.getClinicDashboard = asyncHandler(async (req, res) => {
   res.status(200).json({
     stats: {
       pendingAnamnesis: pendingAnamnesisCount,
+      expiringAnamnesis: expiringAnamnesisCount, // <--- NOVO
       appointmentsToday: appointmentsTodayCount,
       totalPatients: totalPatientsCount,
-      birthdaysMonth: birthdaysMonthCount // <--- Adicionado ao objeto de retorno
+      birthdaysMonth: birthdaysMonthCount
     },
     alerts: alerts,
     feed: feed.slice(0, 20)

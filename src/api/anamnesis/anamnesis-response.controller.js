@@ -284,7 +284,7 @@ exports.getPendingAnamneses = asyncHandler(async (req, res) => {
   // Formatar os dados para incluir todas as informações solicitadas
   const formattedItems = items.map(item => {
     const anamnesisLink = item.patientAccessToken
-      ? `https://www.agendadoutor.com/anamnese/${item.patientAccessToken}`
+      ? `www.agendadoutor.com/anamnese/${item.patientAccessToken}`
       : null;
 
     return {
